@@ -14,6 +14,7 @@ export class VirtualTerminal implements Terminal {
 	private resizeHandler?: () => void;
 	private _columns: number;
 	private _rows: number;
+	private altScreenEnabled = false;
 
 	constructor(columns = 80, rows = 24) {
 		this._columns = columns;
@@ -93,6 +94,12 @@ export class VirtualTerminal implements Terminal {
 
 	clearScreen(): void {
 		this.xterm.write("\x1b[2J\x1b[H"); // Clear screen and move to home (1,1)
+	}
+
+	setAltScreenEnabled(enabled: boolean): void {
+		if (this.altScreenEnabled === enabled) return;
+		this.altScreenEnabled = enabled;
+		this.xterm.write(enabled ? "\x1b[?1049h" : "\x1b[?1049l");
 	}
 
 	setTitle(title: string): void {

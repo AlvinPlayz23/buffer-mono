@@ -592,12 +592,12 @@ pi.on("tool_result", async (event, ctx) => {
 
 #### user_bash
 
-Fired when user executes `!` or `!!` commands. **Can intercept.**
+Fired when user executes `!` commands. **Can intercept.**
 
 ```typescript
 pi.on("user_bash", (event, ctx) => {
   // event.command - the bash command
-  // event.excludeFromContext - true if !! prefix
+  // event.excludeFromContext - true if output is explicitly excluded by caller
   // event.cwd - working directory
 
   // Option 1: Provide custom operations (e.g., SSH)

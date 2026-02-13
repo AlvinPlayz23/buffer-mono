@@ -4,6 +4,7 @@ import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@mar
 import type { MessageRenderer } from "../../../core/extensions/types.js";
 import type { CustomMessage } from "../../../core/messages.js";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
+import { DynamicBorder } from "./dynamic-border.js";
 
 /**
  * Component that renders a custom message entry from extensions.
@@ -28,9 +29,10 @@ export class CustomMessageComponent extends Container {
 		this.markdownTheme = markdownTheme;
 
 		this.addChild(new Spacer(1));
+		this.addChild(new DynamicBorder((line) => theme.fg("borderMuted", line)));
 
-		// Create box with purple background (used for default rendering)
-		this.box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
+		// Plain box without background fill
+		this.box = new Box(1, 1);
 
 		this.rebuild();
 	}
@@ -54,6 +56,11 @@ export class CustomMessageComponent extends Container {
 			this.customComponent = undefined;
 		}
 		this.removeChild(this.box);
+		// Always keep trailing border as last child
+		const last = this.children[this.children.length - 1];
+		if (!(last instanceof DynamicBorder)) {
+			this.addChild(new DynamicBorder((line) => theme.fg("borderMuted", line)));
+		}
 
 		// Try custom renderer first - it handles its own styling
 		if (this.customRenderer) {
@@ -62,7 +69,7 @@ export class CustomMessageComponent extends Container {
 				if (component) {
 					// Custom renderer provides its own styled component
 					this.customComponent = component;
-					this.addChild(component);
+					this.children.splice(this.children.length - 1, 0, component);
 					return;
 				}
 			} catch {
@@ -71,11 +78,11 @@ export class CustomMessageComponent extends Container {
 		}
 
 		// Default rendering uses our box
-		this.addChild(this.box);
+		this.children.splice(this.children.length - 1, 0, this.box);
 		this.box.clear();
 
 		// Default rendering: label + content
-		const label = theme.fg("customMessageLabel", `\x1b[1m[${this.message.customType}]\x1b[22m`);
+		const label = theme.fg("muted", `\x1b[1m[${this.message.customType}]\x1b[22m`);
 		this.box.addChild(new Text(label, 0, 0));
 		this.box.addChild(new Spacer(1));
 
@@ -92,7 +99,7 @@ export class CustomMessageComponent extends Container {
 
 		this.box.addChild(
 			new Markdown(text, 0, 0, this.markdownTheme, {
-				color: (text: string) => theme.fg("customMessageText", text),
+				color: (text: string) => theme.fg("muted", text),
 			}),
 		);
 	}

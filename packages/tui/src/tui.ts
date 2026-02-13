@@ -68,6 +68,8 @@ export const CURSOR_MARKER = "\x1b_pi:c\x07";
 
 export { visibleWidth };
 
+export type TerminalViewMode = "alt-mode" | "text-buffer";
+
 /**
  * Anchor position for overlays
  */
@@ -218,6 +220,8 @@ export class TUI extends Container {
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
 	private stopped = false;
+	private started = false;
+	private viewMode: TerminalViewMode = "text-buffer";
 
 	// Overlay stack for modal components rendered on top of base content
 	private overlayStack: {
@@ -254,6 +258,19 @@ export class TUI extends Container {
 
 	getClearOnShrink(): boolean {
 		return this.clearOnShrink;
+	}
+
+	getViewMode(): TerminalViewMode {
+		return this.viewMode;
+	}
+
+	setViewMode(mode: TerminalViewMode): void {
+		if (this.viewMode === mode) return;
+		this.viewMode = mode;
+		if (this.started) {
+			this.terminal.setAltScreenEnabled(mode === "alt-mode");
+			this.requestRender(true);
+		}
 	}
 
 	/**
@@ -371,11 +388,13 @@ export class TUI extends Container {
 	}
 
 	start(): void {
+		this.started = true;
 		this.stopped = false;
 		this.terminal.start(
 			(data) => this.handleInput(data),
 			() => this.requestRender(),
 		);
+		this.terminal.setAltScreenEnabled(this.viewMode === "alt-mode");
 		this.terminal.hideCursor();
 		this.queryCellSize();
 		this.requestRender();
@@ -404,9 +423,10 @@ export class TUI extends Container {
 	}
 
 	stop(): void {
+		this.started = false;
 		this.stopped = true;
 		// Move cursor to the end of the content to prevent overwriting/artifacts on exit
-		if (this.previousLines.length > 0) {
+		if (this.viewMode === "text-buffer" && this.previousLines.length > 0) {
 			const targetRow = this.previousLines.length; // Line after the last content
 			const lineDiff = targetRow - this.hardwareCursorRow;
 			if (lineDiff > 0) {

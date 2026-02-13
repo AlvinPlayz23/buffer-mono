@@ -104,6 +104,8 @@ When a provider requests a retry delay longer than `maxDelayMs` (e.g., Google's 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `terminal.showImages` | boolean | `true` | Show images in terminal (if supported) |
+| `terminal.viewMode` | string | `"alt-mode"` | Terminal view mode: `"alt-mode"` or `"text-buffer"` |
+| `terminal.enableBashMode` | boolean | `false` | Enable `!command` execution from the editor |
 | `images.autoResize` | boolean | `true` | Resize images to 2000x2000 max |
 | `images.blockImages` | boolean | `false` | Block all images from being sent to LLM |
 

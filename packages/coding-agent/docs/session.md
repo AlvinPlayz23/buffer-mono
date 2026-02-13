@@ -127,7 +127,7 @@ interface BashExecutionMessage {
   cancelled: boolean;
   truncated: boolean;
   fullOutputPath?: string;
-  excludeFromContext?: boolean;  // true for !! prefix commands
+  excludeFromContext?: boolean;  // true when output is excluded from LLM context
   timestamp: number;
 }
 

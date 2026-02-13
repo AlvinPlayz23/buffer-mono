@@ -89,7 +89,7 @@ import { ExtensionEditorComponent } from "./components/extension-editor.js";
 import { ExtensionInputComponent } from "./components/extension-input.js";
 import { ExtensionSelectorComponent } from "./components/extension-selector.js";
 import { FooterComponent } from "./components/footer.js";
-import { appKey, appKeyHint, editorKey, keyHint, rawKeyHint } from "./components/keybinding-hints.js";
+import { appKey, editorKey } from "./components/keybinding-hints.js";
 import { LoginDialogComponent } from "./components/login-dialog.js";
 import { ModelSelectorComponent } from "./components/model-selector.js";
 import { OAuthSelectorComponent } from "./components/oauth-selector.js";
@@ -101,6 +101,7 @@ import { ToolExecutionComponent } from "./components/tool-execution.js";
 import { TreeSelectorComponent } from "./components/tree-selector.js";
 import { UserMessageComponent } from "./components/user-message.js";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.js";
+import { ViewModeSelectorComponent } from "./components/view-mode-selector.js";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
@@ -260,6 +261,9 @@ export class InteractiveMode {
 	private extensionWidgetsBelow = new Map<string, Component & { dispose?(): void }>();
 	private widgetContainerAbove!: Container;
 	private widgetContainerBelow!: Container;
+	private terminalViewMode: "alt-mode" | "text-buffer";
+	private hasAppliedViewMode = false;
+	private readonly supportsNativeViewMode: boolean;
 
 	// Custom footer from extension (undefined = use built-in footer)
 	private customFooter: (Component & { dispose?(): void }) | undefined = undefined;
@@ -292,6 +296,8 @@ export class InteractiveMode {
 		this.version = VERSION;
 		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
+		this.terminalViewMode = this.settingsManager.getViewMode();
+		this.supportsNativeViewMode = typeof (this.ui as unknown as { setViewMode?: unknown }).setViewMode === "function";
 		this.headerContainer = new Container();
 		this.chatContainer = new Container();
 		this.pendingMessagesContainer = new Container();
@@ -318,6 +324,30 @@ export class InteractiveMode {
 		// Register themes from resource loader and initialize
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 		initTheme(this.settingsManager.getTheme(), true);
+	}
+
+	private syncViewMode(mode: "alt-mode" | "text-buffer", options?: { force?: boolean }): void {
+		const force = options?.force ?? false;
+		if (!force && this.hasAppliedViewMode && this.terminalViewMode === mode) {
+			return;
+		}
+
+		if (this.supportsNativeViewMode) {
+			(this.ui as unknown as { setViewMode(mode: "alt-mode" | "text-buffer"): void }).setViewMode(mode);
+		} else {
+			this.ui.terminal.write(mode === "alt-mode" ? "\x1b[?1049h" : "\x1b[?1049l");
+			this.ui.requestRender(true);
+		}
+
+		this.terminalViewMode = mode;
+		this.hasAppliedViewMode = true;
+	}
+
+	private leaveAltScreenIfNeeded(): void {
+		if (!this.supportsNativeViewMode && this.terminalViewMode === "alt-mode" && this.hasAppliedViewMode) {
+			this.ui.terminal.write("\x1b[?1049l");
+			this.hasAppliedViewMode = false;
+		}
 	}
 
 	private setupAutocomplete(fdPath: string | undefined): void {
@@ -414,33 +444,8 @@ export class InteractiveMode {
 		// Add header with keybindings from config (unless silenced)
 		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
 			const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
-
-			// Build startup instructions using keybinding hint helpers
-			const kb = this.keybindings;
-			const hint = (action: AppAction, desc: string) => appKeyHint(kb, action, desc);
-
-			const instructions = [
-				hint("interrupt", "to interrupt"),
-				hint("clear", "to clear"),
-				rawKeyHint(`${appKey(kb, "clear")} twice`, "to exit"),
-				hint("exit", "to exit (empty)"),
-				hint("suspend", "to suspend"),
-				keyHint("deleteToLineEnd", "to delete to end"),
-				hint("cycleThinkingLevel", "to cycle thinking level"),
-				rawKeyHint(`${appKey(kb, "cycleModelForward")}/${appKey(kb, "cycleModelBackward")}`, "to cycle models"),
-				hint("selectModel", "to select model"),
-				hint("expandTools", "to expand tools"),
-				hint("toggleThinking", "to expand thinking"),
-				hint("externalEditor", "for external editor"),
-				rawKeyHint("/", "for commands"),
-				rawKeyHint("!", "to run bash"),
-				rawKeyHint("!!", "to run bash (no context)"),
-				hint("followUp", "to queue follow-up"),
-				hint("dequeue", "to edit all queued messages"),
-				hint("pasteImage", "to paste image"),
-				rawKeyHint("drop files", "to attach"),
-			].join("\n");
-			this.builtInHeader = new Text(`${logo}\n${instructions}`, 1, 0);
+			const helpHint = theme.fg("dim", "Use /help for shortcuts");
+			this.builtInHeader = new Text(`${logo}\n${helpHint}`, 1, 0);
 
 			// Setup UI layout
 			this.headerContainer.addChild(new Spacer(1));
@@ -449,21 +454,21 @@ export class InteractiveMode {
 
 			// Add changelog if provided
 			if (this.changelogMarkdown) {
-				this.headerContainer.addChild(new DynamicBorder());
+				this.headerContainer.addChild(new DynamicBorder(this.getBorderFor("info")));
 				if (this.settingsManager.getCollapseChangelog()) {
 					const versionMatch = this.changelogMarkdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
 					const latestVersion = versionMatch ? versionMatch[1] : this.version;
 					const condensedText = `Updated to v${latestVersion}. Use ${theme.bold("/changelog")} to view full changelog.`;
-					this.headerContainer.addChild(new Text(condensedText, 1, 0));
+					this.headerContainer.addChild(new Text(theme.fg("muted", condensedText), 1, 0));
 				} else {
-					this.headerContainer.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
+					this.headerContainer.addChild(new Text(theme.bold(theme.fg("muted", "What's New")), 1, 0));
 					this.headerContainer.addChild(new Spacer(1));
 					this.headerContainer.addChild(
 						new Markdown(this.changelogMarkdown.trim(), 1, 0, this.getMarkdownThemeWithSettings()),
 					);
 					this.headerContainer.addChild(new Spacer(1));
 				}
-				this.headerContainer.addChild(new DynamicBorder());
+				this.headerContainer.addChild(new DynamicBorder(this.getBorderFor("info")));
 			}
 		} else {
 			// Minimal header when silenced
@@ -500,6 +505,7 @@ export class InteractiveMode {
 
 		// Start the UI
 		this.ui.start();
+		this.syncViewMode(this.terminalViewMode, { force: true });
 		this.isInitialized = true;
 
 		// Set terminal title
@@ -1861,7 +1867,7 @@ export class InteractiveMode {
 
 		this.defaultEditor.onChange = (text: string) => {
 			const wasBashMode = this.isBashMode;
-			this.isBashMode = text.trimStart().startsWith("!");
+			this.isBashMode = this.settingsManager.getEnableBashMode() && text.trimStart().startsWith("!");
 			if (wasBashMode !== this.isBashMode) {
 				this.updateEditorBorderColor();
 			}
@@ -1903,6 +1909,11 @@ export class InteractiveMode {
 			// Handle commands
 			if (text === "/settings") {
 				this.showSettingsSelector();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/view") {
+				this.showViewModeSelector();
 				this.editor.setText("");
 				return;
 			}
@@ -1964,6 +1975,11 @@ export class InteractiveMode {
 			}
 			if (text === "/hotkeys") {
 				this.handleHotkeysCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/help") {
+				this.handleHelpCommand();
 				this.editor.setText("");
 				return;
 			}
@@ -2029,18 +2045,22 @@ export class InteractiveMode {
 				return;
 			}
 
-			// Handle bash command (! for normal, !! for excluded from context)
+			// Handle bash command (!command)
 			if (text.startsWith("!")) {
-				const isExcluded = text.startsWith("!!");
-				const command = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
+				const command = text.slice(1).trim();
 				if (command) {
+					if (!this.settingsManager.getEnableBashMode()) {
+						this.showWarning("Bash mode is disabled. Enable it in /settings.");
+						this.editor.setText(text);
+						return;
+					}
 					if (this.session.isBashRunning) {
 						this.showWarning("A bash command is already running. Press Esc to cancel it first.");
 						this.editor.setText(text);
 						return;
 					}
 					this.editor.addToHistory?.(text);
-					await this.handleBashCommand(command, isExcluded);
+					await this.handleBashCommand(command);
 					this.isBashMode = false;
 					this.updateEditorBorderColor();
 					return;
@@ -2662,10 +2682,12 @@ export class InteractiveMode {
 		// Set up handler to restore TUI when resumed
 		process.once("SIGCONT", () => {
 			this.ui.start();
+			this.syncViewMode(this.terminalViewMode, { force: true });
 			this.ui.requestRender(true);
 		});
 
 		// Stop the TUI (restore terminal to normal mode)
+		this.leaveAltScreenIfNeeded();
 		this.ui.stop();
 
 		// Send SIGTSTP to process group (pid=0 means all processes in group)
@@ -2799,6 +2821,7 @@ export class InteractiveMode {
 			fs.writeFileSync(tmpFile, currentText, "utf-8");
 
 			// Stop TUI to release terminal
+			this.leaveAltScreenIfNeeded();
 			this.ui.stop();
 
 			// Split by space to support editor arguments (e.g., "code --wait")
@@ -2825,6 +2848,7 @@ export class InteractiveMode {
 
 			// Restart TUI
 			this.ui.start();
+			this.syncViewMode(this.terminalViewMode, { force: true });
 			// Force full re-render since external editor uses alternate screen
 			this.ui.requestRender(true);
 		}
@@ -2839,37 +2863,49 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private getBorderFor(kind: "neutral" | "info" | "warning" | "error"): (text: string) => string {
+		switch (kind) {
+			case "info":
+				return (text: string) => theme.fg("borderAccent", text);
+			case "warning":
+				return (text: string) => theme.fg("warning", text);
+			case "error":
+				return (text: string) => theme.fg("error", text);
+			default:
+				return (text: string) => theme.fg("borderMuted", text);
+		}
+	}
+
 	showError(errorMessage: string): void {
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new Text(theme.fg("error", `Error: ${errorMessage}`), 1, 0));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("error")));
+		this.chatContainer.addChild(new Text(theme.fg("muted", `Error: ${errorMessage}`), 1, 0));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("error")));
 		this.ui.requestRender();
 	}
 
 	showWarning(warningMessage: string): void {
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new Text(theme.fg("warning", `Warning: ${warningMessage}`), 1, 0));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("warning")));
+		this.chatContainer.addChild(new Text(theme.fg("muted", `Warning: ${warningMessage}`), 1, 0));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("warning")));
 		this.ui.requestRender();
 	}
 
 	showNewVersionNotification(newVersion: string): void {
-		const action = theme.fg("accent", getUpdateInstruction("buffer-agent"));
-		const updateInstruction = theme.fg("muted", `New version ${newVersion} is available. `) + action;
-		const changelogUrl = theme.fg(
-			"accent",
-			"https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md",
-		);
-		const changelogLine = theme.fg("muted", "Changelog: ") + changelogUrl;
+		const updateInstruction = `New version ${newVersion} is available. ${getUpdateInstruction("buffer-agent")}`;
+		const changelogLine = "Changelog: https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md";
 
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("warning")));
 		this.chatContainer.addChild(
 			new Text(
-				`${theme.bold(theme.fg("warning", "Update Available"))}\n${updateInstruction}\n${changelogLine}`,
+				`${theme.bold(theme.fg("muted", "Update Available"))}\n${theme.fg("muted", updateInstruction)}\n${theme.fg("muted", changelogLine)}`,
 				1,
 				0,
 			),
 		);
-		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("warning")));
 		this.ui.requestRender();
 	}
 
@@ -3098,6 +3134,8 @@ export class InteractiveMode {
 					autocompleteMaxVisible: this.settingsManager.getAutocompleteMaxVisible(),
 					quietStartup: this.settingsManager.getQuietStartup(),
 					clearOnShrink: this.settingsManager.getClearOnShrink(),
+					viewMode: this.settingsManager.getViewMode(),
+					enableBashMode: this.settingsManager.getEnableBashMode(),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
@@ -3190,6 +3228,18 @@ export class InteractiveMode {
 						this.settingsManager.setClearOnShrink(enabled);
 						this.ui.setClearOnShrink(enabled);
 					},
+					onViewModeChange: (mode) => {
+						this.settingsManager.setViewMode(mode);
+						this.syncViewMode(mode);
+					},
+					onEnableBashModeChange: (enabled) => {
+						this.settingsManager.setEnableBashMode(enabled);
+						const wasBashMode = this.isBashMode;
+						this.isBashMode = enabled && this.editor.getText().trimStart().startsWith("!");
+						if (wasBashMode !== this.isBashMode) {
+							this.updateEditorBorderColor();
+						}
+					},
 					onCancel: () => {
 						done();
 						this.ui.requestRender();
@@ -3197,6 +3247,24 @@ export class InteractiveMode {
 				},
 			);
 			return { component: selector, focus: selector.getSettingsList() };
+		});
+	}
+
+	private showViewModeSelector(): void {
+		this.showSelector((done) => {
+			const selector = new ViewModeSelectorComponent(
+				this.settingsManager.getViewMode(),
+				(mode) => {
+					this.settingsManager.setViewMode(mode);
+					this.syncViewMode(mode);
+					this.showStatus(`View mode: ${mode}`);
+					done();
+				},
+				() => {
+					done();
+				},
+			);
+			return { component: selector, focus: selector.getSelectList() };
 		});
 	}
 
@@ -4340,11 +4408,11 @@ export class InteractiveMode {
 				: "No changelog entries found.";
 
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new DynamicBorder());
-		this.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("info")));
+		this.chatContainer.addChild(new Text(theme.bold(theme.fg("muted", "What's New")), 1, 0));
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Markdown(changelogMarkdown, 1, 1, this.getMarkdownThemeWithSettings()));
-		this.chatContainer.addChild(new DynamicBorder());
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("info")));
 		this.ui.requestRender();
 	}
 
@@ -4375,6 +4443,37 @@ export class InteractiveMode {
 	 */
 	private getEditorKeyDisplay(action: EditorAction): string {
 		return this.capitalizeKey(editorKey(action));
+	}
+
+	private handleHelpCommand(): void {
+		const helpText = [
+			"escape to interrupt",
+			"ctrl+c to clear",
+			"ctrl+c twice to exit",
+			"ctrl+d to exit (empty)",
+			"ctrl+z to suspend",
+			"ctrl+k to delete to end",
+			"shift+tab to cycle thinking level",
+			"ctrl+p/shift+ctrl+p to cycle models",
+			"ctrl+l to select model",
+			"ctrl+o to expand tools",
+			"ctrl+t to expand thinking",
+			"ctrl+g for external editor",
+			"/ for commands",
+			"! to run bash",
+			"alt+enter to queue follow-up",
+			"alt+up to edit all queued messages",
+			"ctrl+v to paste image",
+			"drop files to attach",
+		]
+			.map((line) => theme.fg("muted", line))
+			.join("\n");
+
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("neutral")));
+		this.chatContainer.addChild(new Text(helpText, 1, 0));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("neutral")));
+		this.ui.requestRender();
 	}
 
 	private handleHotkeysCommand(): void {
@@ -4458,7 +4557,6 @@ export class InteractiveMode {
 | \`Ctrl+V\` | Paste image from clipboard |
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |
-| \`!!\` | Run bash command (excluded from context) |
 `;
 
 		// Add extension-registered shortcuts
@@ -4480,11 +4578,11 @@ export class InteractiveMode {
 		}
 
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new DynamicBorder());
-		this.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "Keyboard Shortcuts")), 1, 0));
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("info")));
+		this.chatContainer.addChild(new Text(theme.bold(theme.fg("muted", "Keyboard Shortcuts")), 1, 0));
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Markdown(hotkeys.trim(), 1, 1, this.getMarkdownThemeWithSettings()));
-		this.chatContainer.addChild(new DynamicBorder());
+		this.chatContainer.addChild(new DynamicBorder(this.getBorderFor("info")));
 		this.ui.requestRender();
 	}
 
@@ -4732,6 +4830,7 @@ export class InteractiveMode {
 			this.unsubscribe();
 		}
 		if (this.isInitialized) {
+			this.leaveAltScreenIfNeeded();
 			this.ui.stop();
 			this.isInitialized = false;
 		}

@@ -19,6 +19,7 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "../../../core/
 import { convertToPng } from "../../../utils/image-convert.js";
 import { sanitizeBinaryOutput } from "../../../utils/shell.js";
 import { getLanguageFromPath, highlightCode, theme } from "../theme/theme.js";
+import { DynamicBorder } from "./dynamic-border.js";
 import { renderDiff } from "./diff.js";
 import { keyHint } from "./keybinding-hints.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
@@ -62,6 +63,8 @@ export interface ToolExecutionOptions {
 export class ToolExecutionComponent extends Container {
 	private contentBox: Box; // Used for custom tools and bash visual truncation
 	private contentText: Text; // For built-in tools (with its own padding/bg)
+	private topBorder: DynamicBorder;
+	private bottomBorder: DynamicBorder;
 	private imageComponents: Image[] = [];
 	private imageSpacers: Spacer[] = [];
 	private toolName: string;
@@ -83,6 +86,16 @@ export class ToolExecutionComponent extends Container {
 	// Cached converted images for Kitty protocol (which requires PNG), keyed by index
 	private convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
 
+	private getBorderColor(): (text: string) => string {
+		if (this.result?.isError) {
+			return (text: string) => theme.fg("error", text);
+		}
+		if (this.isPartial) {
+			return (text: string) => theme.fg("borderAccent", text);
+		}
+		return (text: string) => theme.fg("borderMuted", text);
+	}
+
 	constructor(
 		toolName: string,
 		args: any,
@@ -100,10 +113,13 @@ export class ToolExecutionComponent extends Container {
 		this.cwd = cwd;
 
 		this.addChild(new Spacer(1));
+		this.topBorder = new DynamicBorder((text) => this.getBorderColor()(text));
+		this.bottomBorder = new DynamicBorder((text) => this.getBorderColor()(text));
+		this.addChild(this.topBorder);
 
 		// Always create both - contentBox for custom tools/bash, contentText for other built-ins
-		this.contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentBox = new Box(1, 1);
+		this.contentText = new Text("", 1, 1);
 
 		// Use contentBox for bash (visual truncation) or custom tools with custom renderers
 		// Use contentText for built-in tools (including overrides without custom renderers)
@@ -112,6 +128,7 @@ export class ToolExecutionComponent extends Container {
 		} else {
 			this.addChild(this.contentText);
 		}
+		this.addChild(this.bottomBorder);
 
 		this.updateDisplay();
 	}
@@ -235,28 +252,21 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private updateDisplay(): void {
-		// Set background based on state
-		const bgFn = this.isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
-			: this.result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
-
 		// Use built-in rendering for built-in tools (or overrides without custom renderers)
 		if (this.shouldUseBuiltInRenderer()) {
 			if (this.toolName === "bash") {
 				// Bash uses Box with visual line truncation
-				this.contentBox.setBgFn(bgFn);
+				this.contentBox.setBgFn(undefined);
 				this.contentBox.clear();
 				this.renderBashContent();
 			} else {
 				// Other built-in tools: use Text directly with caching
-				this.contentText.setCustomBgFn(bgFn);
-				this.contentText.setText(this.formatToolExecution());
+				this.contentText.setCustomBgFn(undefined);
+				this.contentText.setText(theme.fg("muted", stripAnsi(this.formatToolExecution())));
 			}
 		} else if (this.toolDefinition) {
 			// Custom tools use Box for flexible component rendering
-			this.contentBox.setBgFn(bgFn);
+			this.contentBox.setBgFn(undefined);
 			this.contentBox.clear();
 
 			// Render call component
@@ -268,11 +278,11 @@ export class ToolExecutionComponent extends Container {
 					}
 				} catch {
 					// Fall back to default on error
-					this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0));
+					this.contentBox.addChild(new Text(theme.fg("muted", theme.bold(this.toolName)), 0, 0));
 				}
 			} else {
 				// No custom renderCall, show tool name
-				this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0));
+				this.contentBox.addChild(new Text(theme.fg("muted", theme.bold(this.toolName)), 0, 0));
 			}
 
 			// Render result component if we have a result
@@ -290,14 +300,14 @@ export class ToolExecutionComponent extends Container {
 					// Fall back to showing raw output on error
 					const output = this.getTextOutput();
 					if (output) {
-						this.contentBox.addChild(new Text(theme.fg("toolOutput", output), 0, 0));
+						this.contentBox.addChild(new Text(theme.fg("muted", output), 0, 0));
 					}
 				}
 			} else if (this.result) {
 				// Has result but no custom renderResult
 				const output = this.getTextOutput();
 				if (output) {
-					this.contentBox.addChild(new Text(theme.fg("toolOutput", output), 0, 0));
+					this.contentBox.addChild(new Text(theme.fg("muted", output), 0, 0));
 				}
 			}
 		}
@@ -354,11 +364,8 @@ export class ToolExecutionComponent extends Container {
 
 		// Header
 		const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
-		const commandDisplay =
-			command === null ? theme.fg("error", "[invalid arg]") : command ? command : theme.fg("toolOutput", "...");
-		this.contentBox.addChild(
-			new Text(theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix, 0, 0),
-		);
+		const commandDisplay = command === null ? "[invalid arg]" : command || "...";
+		this.contentBox.addChild(new Text(theme.fg("muted", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix, 0, 0));
 
 		if (this.result) {
 			const output = this.getTextOutput().trim();
@@ -367,7 +374,7 @@ export class ToolExecutionComponent extends Container {
 				// Style each line for the output
 				const styledOutput = output
 					.split("\n")
-					.map((line) => theme.fg("toolOutput", line))
+					.map((line) => theme.fg("muted", line))
 					.join("\n");
 
 				if (this.expanded) {
@@ -422,7 +429,7 @@ export class ToolExecutionComponent extends Container {
 						);
 					}
 				}
-				this.contentBox.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
+				this.contentBox.addChild(new Text(`\n${theme.fg("muted", `[${warnings.join(". ")}]`)}`, 0, 0));
 			}
 		}
 	}

@@ -22,6 +22,8 @@ export interface RetrySettings {
 export interface TerminalSettings {
 	showImages?: boolean; // default: true (only relevant if terminal supports images)
 	clearOnShrink?: boolean; // default: false (clear empty rows when content shrinks)
+	viewMode?: "alt-mode" | "text-buffer"; // default: alt-mode (alternate screen)
+	enableBashMode?: boolean; // default: false (allow !command execution from editor)
 }
 
 export interface ImageSettings {
@@ -658,6 +660,32 @@ export class SettingsManager {
 			return this.settings.terminal.clearOnShrink;
 		}
 		return process.env.BUFFER_CLEAR_ON_SHRINK === "1";
+	}
+
+	getViewMode(): "alt-mode" | "text-buffer" {
+		return this.settings.terminal?.viewMode ?? "alt-mode";
+	}
+
+	getEnableBashMode(): boolean {
+		return this.settings.terminal?.enableBashMode ?? false;
+	}
+
+	setViewMode(mode: "alt-mode" | "text-buffer"): void {
+		if (!this.globalSettings.terminal) {
+			this.globalSettings.terminal = {};
+		}
+		this.globalSettings.terminal.viewMode = mode;
+		this.markModified("terminal", "viewMode");
+		this.save();
+	}
+
+	setEnableBashMode(enabled: boolean): void {
+		if (!this.globalSettings.terminal) {
+			this.globalSettings.terminal = {};
+		}
+		this.globalSettings.terminal.enableBashMode = enabled;
+		this.markModified("terminal", "enableBashMode");
+		this.save();
 	}
 
 	setClearOnShrink(enabled: boolean): void {

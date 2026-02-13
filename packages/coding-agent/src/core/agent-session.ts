@@ -2215,7 +2215,7 @@ export class AgentSession {
 	 * Adds result to agent context and session.
 	 * @param command The bash command to execute
 	 * @param onChunk Optional streaming callback for output
-	 * @param options.excludeFromContext If true, command output won't be sent to LLM (!! prefix)
+	 * @param options.excludeFromContext If true, command output won't be sent to LLM
 	 * @param options.operations Custom BashOperations for remote execution
 	 */
 	async executeBash(

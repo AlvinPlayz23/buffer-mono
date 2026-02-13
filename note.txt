@@ -1,0 +1,82 @@
+Title: Follow-up on GH013 Push Protection (Google OAuth creds in repo)
+Date noted: 2026-02-13
+Status: Temporarily bypassed via GitHub unblock link
+Priority: High (cleanup still pending)
+
+Do not forget..meant to do it later.
+
+What happened (step-by-step)
+1. Ran `git push -u origin main`.
+2. GitHub rejected push with `GH013: Repository rule violations`.
+3. Secret scanning identified Google OAuth values in commit `6472051a24b331689d5c81081b31059d7dcc699f`.
+4. Specifically flagged:
+   - Google OAuth Client ID
+   - Google OAuth Client Secret
+5. Push was allowed only after using GitHub's unblock-secret flow.
+
+Why this happened
+1. Repo includes hardcoded OAuth app credentials in source code.
+2. GitHub push protection scans commit content and blocks known secret patterns.
+3. Even if credentials are from upstream/public tooling and not personal, GitHub still treats client secrets as sensitive.
+
+Impacted files and lines (current snapshot)
+1. `packages/ai/src/utils/oauth/google-gemini-cli.ts`
+   - Client credentials defined near lines 26 and 29.
+   - Used in token refresh/exchange near lines 385-386 and 530-531.
+2. `packages/ai/src/utils/oauth/google-antigravity.ts`
+   - Client credentials defined near lines 27 and 30.
+   - Used in token refresh/exchange near lines 243-244 and 388-389.
+3. Related auth storage context (not the leak source):
+   - `packages/ai/src/cli.ts` (`AUTH_FILE = "auth.json"`)
+   - `packages/coding-agent/src/core/auth-storage.ts` (auth file path and storage)
+
+What is NOT the issue
+1. `auth.json` token storage itself is expected runtime storage.
+2. `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_PROJECT_ID` env usage is normal and already implemented.
+
+Risks if left as-is
+1. Future pushes can be blocked again.
+2. Secrets remain in git history.
+3. If credentials are valid, they can be abused by third parties.
+
+Planned fix (do later, step-by-step)
+1. Replace hardcoded OAuth client credentials with runtime config/env variables in:
+   - `packages/ai/src/utils/oauth/google-gemini-cli.ts`
+   - `packages/ai/src/utils/oauth/google-antigravity.ts`
+2. Add fallback/validation errors when required env vars are issing.
+3. Keep secrets out of tracked files (`.env` local only, `.env.example` with placeholders).
+4. Rewrite git history to remove leaked values from old commits.
+5. Force-push cleaned history (`--force-with-lease`).
+6. Re-run push and ensure no GH013 violations.
+
+Suggested env vars (example naming)
+1. `PI_GOOGLE_GEMINI_CLI_CLIENT_ID`
+2. `PI_GOOGLE_GEMINI_CLI_CLIENT_SECRET`
+3. `PI_GOOGLE_ANTIGRAVITY_CLIENT_ID`
+4. `PI_GOOGLE_ANTIGRAVITY_CLIENT_SECRET`
+
+Verification checklist
+1. `rg -n "CLIENT_SECRET|GOCSPX|apps.googleusercontent.com" packages/ai/src/utils/oauth`
+2. Ensure no real secrets in tracked files.
+3. Ensure OAuth login still works with env vars present.
+4. Confirm `git push` succeeds without unblock links.
+
+Optional hardening
+1. Rotate/revoke any leaked OAuth client secrets in Google Cloud.
+2. Add pre-commit or CI secret scan (e.g., gitleaks/trufflehog).
+3. Add docs section on local credential setup.
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+agent has access to buffer docs i think

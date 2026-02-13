@@ -41,6 +41,8 @@ export interface SettingsConfig {
 	autocompleteMaxVisible: number;
 	quietStartup: boolean;
 	clearOnShrink: boolean;
+	viewMode: "alt-mode" | "text-buffer";
+	enableBashMode: boolean;
 }
 
 export interface SettingsCallbacks {
@@ -62,6 +64,8 @@ export interface SettingsCallbacks {
 	onAutocompleteMaxVisibleChange: (maxVisible: number) => void;
 	onQuietStartupChange: (enabled: boolean) => void;
 	onClearOnShrinkChange: (enabled: boolean) => void;
+	onViewModeChange: (mode: "alt-mode" | "text-buffer") => void;
+	onEnableBashModeChange: (enabled: boolean) => void;
 	onCancel: () => void;
 }
 
@@ -324,6 +328,26 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
+		// View mode toggle (insert after clear-on-shrink)
+		const clearOnShrinkIndex = items.findIndex((item) => item.id === "clear-on-shrink");
+		items.splice(clearOnShrinkIndex + 1, 0, {
+			id: "view-mode",
+			label: "View mode",
+			description: "Terminal view mode: alternate screen or normal text buffer",
+			currentValue: config.viewMode,
+			values: ["alt-mode", "text-buffer"],
+		});
+
+		// Bash mode toggle (insert after view-mode)
+		const viewModeIndex = items.findIndex((item) => item.id === "view-mode");
+		items.splice(viewModeIndex + 1, 0, {
+			id: "enable-bash-mode",
+			label: "Enable bash mode",
+			description: "Allow running shell commands with !command from the editor",
+			currentValue: config.enableBashMode ? "true" : "false",
+			values: ["true", "false"],
+		});
+
 		// Add borders
 		this.addChild(new DynamicBorder());
 
@@ -377,6 +401,12 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "clear-on-shrink":
 						callbacks.onClearOnShrinkChange(newValue === "true");
+						break;
+					case "view-mode":
+						callbacks.onViewModeChange(newValue as "alt-mode" | "text-buffer");
+						break;
+					case "enable-bash-mode":
+						callbacks.onEnableBashModeChange(newValue === "true");
 						break;
 				}
 			},

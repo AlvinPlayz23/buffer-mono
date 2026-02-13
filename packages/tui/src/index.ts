@@ -86,6 +86,7 @@ export {
 	type OverlayMargin,
 	type OverlayOptions,
 	type SizeValue,
+	type TerminalViewMode,
 	TUI,
 } from "./tui.js";
 // Utilities

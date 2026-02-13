@@ -41,6 +41,7 @@ export interface Terminal {
 	clearLine(): void; // Clear current line
 	clearFromCursor(): void; // Clear from cursor to end of screen
 	clearScreen(): void; // Clear entire screen and move cursor to (0,0)
+	setAltScreenEnabled(enabled: boolean): void; // Toggle alternate screen buffer
 
 	// Title operations
 	setTitle(title: string): void; // Set terminal window title
@@ -54,6 +55,7 @@ export class ProcessTerminal implements Terminal {
 	private inputHandler?: (data: string) => void;
 	private resizeHandler?: () => void;
 	private _kittyProtocolActive = false;
+	private altScreenEnabled = false;
 	private stdinBuffer?: StdinBuffer;
 	private stdinDataHandler?: (data: string) => void;
 	private writeLogPath = process.env.PI_TUI_WRITE_LOG || "";
@@ -193,6 +195,9 @@ export class ProcessTerminal implements Terminal {
 	}
 
 	stop(): void {
+		// Leave alternate screen if active
+		this.setAltScreenEnabled(false);
+
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");
 
@@ -279,6 +284,12 @@ export class ProcessTerminal implements Terminal {
 
 	clearScreen(): void {
 		process.stdout.write("\x1b[2J\x1b[H"); // Clear screen and move to home (1,1)
+	}
+
+	setAltScreenEnabled(enabled: boolean): void {
+		if (this.altScreenEnabled === enabled) return;
+		this.altScreenEnabled = enabled;
+		process.stdout.write(enabled ? "\x1b[?1049h" : "\x1b[?1049l");
 	}
 
 	setTitle(title: string): void {

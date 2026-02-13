@@ -137,7 +137,7 @@ The editor can be temporarily replaced by other UI, like built-in `/settings` or
 | Path completion | Tab to complete paths |
 | Multi-line | Shift+Enter (or Ctrl+Enter on Windows Terminal) |
 | Images | Ctrl+V to paste, or drag onto terminal |
-| Bash commands | `!command` runs and sends output to LLM, `!!command` runs without sending |
+| Bash commands | `!command` runs and sends output to LLM (requires enabling bash mode in `/settings`) |
 
 Standard editing keybindings for delete word, undo, etc. See [docs/keybindings.md](docs/keybindings.md).
 
@@ -150,6 +150,7 @@ Type `/` in the editor to trigger commands. [Extensions](#extensions) can regist
 | `/login`, `/logout` | OAuth authentication |
 | `/model` | Switch models |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
+| `/view` | Switch terminal view mode (`alt-mode` or `text-buffer`) |
 | `/settings` | Thinking level, theme, message delivery |
 | `/resume` | Pick from previous sessions |
 | `/new` | Start a new session |
@@ -162,6 +163,7 @@ Type `/` in the editor to trigger commands. [Extensions](#extensions) can regist
 | `/export [file]` | Export session to HTML file |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
 | `/reload` | Reload extensions, skills, prompts, context files (themes hot-reload automatically) |
+| `/help` | Show quick keyboard shortcuts |
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/quit`, `/exit` | Quit pi |

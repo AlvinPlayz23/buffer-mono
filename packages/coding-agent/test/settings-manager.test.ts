@@ -224,4 +224,56 @@ describe("SettingsManager", () => {
 			expect(savedSettings.theme).toBe("light");
 		});
 	});
+
+	describe("terminal view mode", () => {
+		it("should default to alt-mode when terminal.viewMode is not set", () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getViewMode()).toBe("alt-mode");
+		});
+
+		it("should persist terminal.viewMode", () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setViewMode("text-buffer");
+
+			const settingsPath = join(agentDir, "settings.json");
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.terminal.viewMode).toBe("text-buffer");
+			expect(manager.getViewMode()).toBe("text-buffer");
+		});
+
+		it("should preserve terminal.viewMode when saving unrelated settings", () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ terminal: { viewMode: "text-buffer" } }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setTheme("light");
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.terminal.viewMode).toBe("text-buffer");
+			expect(savedSettings.theme).toBe("light");
+		});
+	});
+
+	describe("terminal bash mode", () => {
+		it("should default to disabled when terminal.enableBashMode is not set", () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getEnableBashMode()).toBe(false);
+		});
+
+		it("should persist terminal.enableBashMode", () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setEnableBashMode(true);
+
+			const settingsPath = join(agentDir, "settings.json");
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.terminal.enableBashMode).toBe(true);
+			expect(manager.getEnableBashMode()).toBe(true);
+		});
+	});
 });

@@ -17,6 +17,7 @@ export interface BuiltinSlashCommand {
 
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },
+	{ name: "view", description: "Switch terminal view mode (alt-mode or text-buffer)" },
 	{ name: "model", description: "Select model (opens selector UI)" },
 	{ name: "init-memory", description: "Initialize project memory (.buffer/memory.md)" },
 	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
@@ -28,6 +29,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "name", description: "Set session display name" },
 	{ name: "session", description: "Show session info and stats" },
 	{ name: "changelog", description: "Show changelog entries" },
+	{ name: "help", description: "Show quick keyboard shortcuts" },
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
 	{ name: "fork", description: "Create a new fork from a previous message" },
 	{ name: "tree", description: "Navigate session tree (switch branches)" },

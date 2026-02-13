@@ -29,41 +29,48 @@ export class BashExecutionComponent extends Container {
 	private expanded = false;
 	private contentContainer: Container;
 	private ui: TUI;
+	private topBorder: DynamicBorder;
+	private bottomBorder: DynamicBorder;
 
-	constructor(command: string, ui: TUI, excludeFromContext = false) {
+	private getBorderColor(): (str: string) => string {
+		if (this.status === "error") return (str: string) => theme.fg("error", str);
+		if (this.status === "cancelled") return (str: string) => theme.fg("warning", str);
+		if (this.status === "running") return (str: string) => theme.fg("borderAccent", str);
+		return (str: string) => theme.fg("borderMuted", str);
+	}
+
+	constructor(command: string, ui: TUI, _excludeFromContext = false) {
 		super();
 		this.command = command;
 		this.ui = ui;
-
-		// Use dim border for excluded-from-context commands (!! prefix)
-		const colorKey = excludeFromContext ? "dim" : "bashMode";
-		const borderColor = (str: string) => theme.fg(colorKey, str);
 
 		// Add spacer
 		this.addChild(new Spacer(1));
 
 		// Top border
-		this.addChild(new DynamicBorder(borderColor));
+		this.topBorder = new DynamicBorder((str) => this.getBorderColor()(str));
+		this.addChild(this.topBorder);
 
 		// Content container (holds dynamic content between borders)
 		this.contentContainer = new Container();
 		this.addChild(this.contentContainer);
 
 		// Command header
-		const header = new Text(theme.fg(colorKey, theme.bold(`$ ${command}`)), 1, 0);
+		const header = new Text(theme.fg("muted", theme.bold(`$ ${command}`)), 1, 0);
 		this.contentContainer.addChild(header);
 
 		// Loader
 		this.loader = new Loader(
 			ui,
-			(spinner) => theme.fg(colorKey, spinner),
+			(spinner) => theme.fg("muted", spinner),
 			(text) => theme.fg("muted", text),
 			`Running... (${editorKey("selectCancel")} to cancel)`, // Plain text for loader
 		);
 		this.contentContainer.addChild(this.loader);
 
 		// Bottom border
-		this.addChild(new DynamicBorder(borderColor));
+		this.bottomBorder = new DynamicBorder((str) => this.getBorderColor()(str));
+		this.addChild(this.bottomBorder);
 	}
 
 	/**
@@ -137,7 +144,7 @@ export class BashExecutionComponent extends Container {
 		this.contentContainer.clear();
 
 		// Command header
-		const header = new Text(theme.fg("bashMode", theme.bold(`$ ${this.command}`)), 1, 0);
+		const header = new Text(theme.fg("muted", theme.bold(`$ ${this.command}`)), 1, 0);
 		this.contentContainer.addChild(header);
 
 		// Output
@@ -177,15 +184,15 @@ export class BashExecutionComponent extends Container {
 			}
 
 			if (this.status === "cancelled") {
-				statusParts.push(theme.fg("warning", "(cancelled)"));
+				statusParts.push(theme.fg("muted", "(cancelled)"));
 			} else if (this.status === "error") {
-				statusParts.push(theme.fg("error", `(exit ${this.exitCode})`));
+				statusParts.push(theme.fg("muted", `(exit ${this.exitCode})`));
 			}
 
 			// Add truncation warning (context truncation, not preview truncation)
 			const wasTruncated = this.truncationResult?.truncated || contextTruncation.truncated;
 			if (wasTruncated && this.fullOutputPath) {
-				statusParts.push(theme.fg("warning", `Output truncated. Full output: ${this.fullOutputPath}`));
+				statusParts.push(theme.fg("muted", `Output truncated. Full output: ${this.fullOutputPath}`));
 			}
 
 			if (statusParts.length > 0) {

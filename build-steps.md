@@ -14,6 +14,10 @@
 
   # 2) Run exact local built CLI (always correct)
   node packages/coding-agent/dist/cli.js
+  
+  or
+  
+  pnpm --dir packages/coding-agent run start
 
   # 3) In app, run:
   /connect
