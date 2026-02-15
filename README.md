@@ -1,104 +1,93 @@
-# ca-cli
+# buffer-agent
 
-Monorepo for Buffer CLI and supporting packages.
+Buffer coding-agent CLI repository. This repo contains the CLI runtime, model/provider layer, agent core, TUI, docs, examples, and an Electron desktop ACP client.
 
-## Overview
+## What is in this repo
 
-`ca-cli` contains a terminal-first coding assistant stack:
-
-- `packages/coding-agent`: main Buffer CLI (`buffer` command)
-- `packages/tui`: terminal UI framework used by the agent
-- `packages/ai`: model/provider integration layer
-- `packages/agent`: agent runtime/core orchestration
+- `src/coding-agent`: Buffer CLI, SDK surface, modes (`text`, `print`, `rpc`, `acp`)
+- `src/buffer-ai`: model providers, auth integrations, streaming adapters
+- `src/buffer-agent-core`: agent loop and tool orchestration runtime
+- `src/buffer-tui`: terminal UI toolkit and components used by interactive mode
+- `apps/desktop`: Electron desktop client that talks to Buffer over ACP (`buffer --acp`)
+- `test/*`: consolidated tests across CLI, core, AI, and TUI
+- `docs/`: end-user and developer documentation
+- `examples/`: extension and SDK examples
 
 ## Requirements
 
 - Node.js `>= 20`
-- `pnpm`
+- pnpm
 
-## Install
+## Setup and core commands
 
 ```bash
 pnpm install
+pnpm run build
+pnpm run test
+pnpm run check
 ```
 
-## Build
+## Running Buffer CLI
+
+Interactive mode:
 
 ```bash
-pnpm build
+pnpm run build
+node dist/coding-agent/cli.js
 ```
 
-## Dev
+Non-interactive/print mode:
 
 ```bash
-pnpm dev
+node dist/coding-agent/cli.js --print "List all TypeScript files in src/"
 ```
 
-## Test
+ACP server mode (for clients/editors):
 
 ```bash
-pnpm test
+node dist/coding-agent/cli.js --acp
 ```
 
-## Useful workspace commands
+`--acp` starts a JSON-RPC ACP server over stdio, suitable for desktop/editor client integration.
 
-From repo root:
+## Desktop app (`apps/desktop`)
+
+The repo includes an Electron desktop client that runs Buffer as an ACP subprocess (`buffer --acp`) and renders sessions in a GUI.
+
+Current desktop capabilities:
+
+- ACP lifecycle: `initialize`, `session/new`, `session/load`, `session/prompt`, `session/cancel`, `session/set_mode`
+- Streaming `session/update` handling for message chunks, tool calls, plans, commands, and mode updates
+- Session-level permission decisions with optional global auto-allow in settings
+
+Run desktop app in development:
 
 ```bash
-pnpm --dir packages/coding-agent build
-pnpm --dir packages/tui build
-pnpm --dir packages/coding-agent test
-pnpm --dir packages/tui test
+pnpm run desktop:dev
 ```
 
-## CLI quick start
-
-Build and run Buffer CLI:
+If Electron fails to install correctly, allow/rebuild blocked build scripts and retry:
 
 ```bash
-pnpm --dir packages/coding-agent build
-node packages/coding-agent/dist/cli.js
+pnpm run desktop:repair
+pnpm run desktop:dev
 ```
 
-## Recent changes in this session
+Build desktop renderer package:
 
-### Terminal view mode
+```bash
+pnpm run desktop:build
+```
 
-- Added configurable terminal view mode with persistence:
-  - `alt-mode` (default)
-  - `text-buffer`
-- Added `/view` command selector for mode switching.
-- Added `View mode` entry in `/settings`.
-- Added TUI/terminal support for alternate screen switching.
+Run desktop tests:
 
-### Help and startup UX
-
-- Added `/help` command.
-- `/help` now prints the shortcut list in a boxed panel with muted gray text.
-- Startup header no longer prints the full shortcut list under the logo; it now points users to `/help`.
-
-### Bash mode behavior
-
-- Added `terminal.enableBashMode` setting (default `false`).
-- Bash command input (`!command`) is now disabled unless explicitly enabled in `/settings`.
-- Removed special `!!` interactive mode behavior.
-
-### Visual style simplification
-
-- Removed filled background boxes from core chat/tool surfaces.
-- Moved visual status signaling to outline colors:
-  - gray = neutral
-  - blue = info/running/highlighted sections
-  - yellow = warning
-  - red = error
-- Kept body text in muted gray for a flatter terminal look.
-
-### Docs and tests updated
-
-- Updated `packages/coding-agent/README.md` and relevant docs under `packages/coding-agent/docs`.
-- Added/updated tests for slash commands, settings behavior, and view mode.
+```bash
+pnpm run desktop:test
+```
 
 ## Notes
 
-- This repo may contain uncommitted local work while iterating. Check `git status` before packaging or publishing.
-- For detailed Buffer CLI usage and command docs, see `packages/coding-agent/README.md`.
+- npm package name: `buffer-agent`
+- CLI binary: `buffer`
+- ACP compatibility target in this repo is protocol version `1`
+- Phase-1 desktop focus is local development flow (not signed installers/auto-update)

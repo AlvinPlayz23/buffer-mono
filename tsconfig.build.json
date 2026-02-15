@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "#buffer-ai": ["./src/buffer-ai/index.ts"],
+      "#buffer-ai/*": ["./src/buffer-ai/*"],
+      "#buffer-agent-core": ["./src/buffer-agent-core/index.ts"],
+      "#buffer-agent-core/*": ["./src/buffer-agent-core/*"],
+      "#buffer-tui": ["./src/buffer-tui/index.ts"],
+      "#buffer-tui/*": ["./src/buffer-tui/*"],
+      "buffer-agent": ["./src/coding-agent/index.ts"],
+      "buffer-agent/*": ["./src/coding-agent/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.d.ts"]
+}

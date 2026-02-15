@@ -1,0 +1,241 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import * as readline from "node:readline";
+
+function stripAnsi(s: string): string {
+	return s.replace(/[\u001B\u009B][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+}
+
+type BufferRpcCommand =
+	| { type: "prompt"; id?: string; message: string; attachments?: unknown[] }
+	| { type: "abort"; id?: string }
+	| { type: "get_state"; id?: string }
+	| { type: "get_available_models"; id?: string }
+	| { type: "set_model"; id?: string; provider: string; modelId: string }
+	| { type: "set_thinking_level"; id?: string; level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" }
+	| { type: "set_follow_up_mode"; id?: string; mode: "all" | "one-at-a-time" }
+	| { type: "set_steering_mode"; id?: string; mode: "all" | "one-at-a-time" }
+	| { type: "compact"; id?: string; customInstructions?: string }
+	| { type: "set_auto_compaction"; id?: string; enabled: boolean }
+	| { type: "get_session_stats"; id?: string }
+	| { type: "export_html"; id?: string; outputPath?: string }
+	| { type: "switch_session"; id?: string; sessionPath: string }
+	| { type: "get_messages"; id?: string };
+
+type BufferRpcResponse = {
+	type: "response";
+	id?: string;
+	command: string;
+	success: boolean;
+	data?: unknown;
+	error?: string;
+};
+
+export type BufferRpcEvent = Record<string, unknown>;
+
+type SpawnParams = {
+	cwd: string;
+	bufferCommand?: string;
+	sessionPath?: string;
+};
+
+function resolveBufferRpcSpawn(
+	overrideCommand: string | undefined,
+	sessionPath: string | undefined,
+): { command: string; args: string[] } {
+	const args = ["--mode", "rpc"];
+	if (sessionPath) args.push("--session", sessionPath);
+
+	if (overrideCommand && overrideCommand.trim().length > 0) {
+		return { command: overrideCommand, args };
+	}
+
+	const envOverride = process.env.BUFFER_ACP_CHILD_CMD;
+	if (envOverride && envOverride.trim().length > 0) {
+		return { command: envOverride, args };
+	}
+
+	const currentCli = process.argv[1];
+	if (currentCli) {
+		return { command: process.execPath, args: [currentCli, ...args] };
+	}
+
+	return { command: "buffer", args };
+}
+
+export class BufferRpcProcess {
+	private readonly child: ChildProcessWithoutNullStreams;
+	private readonly pending = new Map<string, { resolve: (v: BufferRpcResponse) => void; reject: (e: unknown) => void }>();
+	private eventHandlers: Array<(ev: BufferRpcEvent) => void> = [];
+	private readonly preludeLines: string[] = [];
+
+	private constructor(child: ChildProcessWithoutNullStreams) {
+		this.child = child;
+
+		const rl = readline.createInterface({ input: child.stdout });
+		rl.on("line", (line) => {
+			if (!line.trim()) return;
+			let msg: any;
+			try {
+				msg = JSON.parse(line);
+			} catch {
+				const cleaned = stripAnsi(String(line)).trimEnd();
+				if (cleaned) this.preludeLines.push(cleaned);
+				return;
+			}
+
+			if (msg?.type === "response") {
+				const id = typeof msg.id === "string" ? msg.id : undefined;
+				if (id) {
+					const pending = this.pending.get(id);
+					if (pending) {
+						this.pending.delete(id);
+						pending.resolve(msg as BufferRpcResponse);
+						return;
+					}
+				}
+			}
+
+			for (const h of this.eventHandlers) h(msg as BufferRpcEvent);
+		});
+
+		child.on("exit", (code, signal) => {
+			const err = new Error(`buffer process exited (code=${code}, signal=${signal})`);
+			for (const [, p] of this.pending) p.reject(err);
+			this.pending.clear();
+		});
+	}
+
+	static async spawn(params: SpawnParams): Promise<BufferRpcProcess> {
+		const { command, args } = resolveBufferRpcSpawn(params.bufferCommand, params.sessionPath);
+		const child = spawn(command, args, {
+			cwd: params.cwd,
+			stdio: "pipe",
+			env: process.env,
+		});
+
+		child.stderr.on("data", () => {
+			// passthrough
+		});
+
+		const proc = new BufferRpcProcess(child);
+		try {
+			const state = (await proc.getState()) as any;
+			const sessionFile = typeof state?.sessionFile === "string" ? state.sessionFile : null;
+			if (sessionFile) {
+				const { mkdirSync } = await import("node:fs");
+				const { dirname } = await import("node:path");
+				mkdirSync(dirname(sessionFile), { recursive: true });
+			}
+		} catch {
+			// best effort
+		}
+
+		return proc;
+	}
+
+	onEvent(handler: (ev: BufferRpcEvent) => void): () => void {
+		this.eventHandlers.push(handler);
+		return () => {
+			this.eventHandlers = this.eventHandlers.filter((h) => h !== handler);
+		};
+	}
+
+	consumePreludeLines(): string[] {
+		const lines = this.preludeLines.splice(0, this.preludeLines.length);
+		return lines;
+	}
+
+	async prompt(message: string, attachments: unknown[] = []): Promise<void> {
+		const res = await this.request({ type: "prompt", message, attachments });
+		if (!res.success) throw new Error(`buffer prompt failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async abort(): Promise<void> {
+		const res = await this.request({ type: "abort" });
+		if (!res.success) throw new Error(`buffer abort failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async getState(): Promise<unknown> {
+		const res = await this.request({ type: "get_state" });
+		if (!res.success) throw new Error(`buffer get_state failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	async getAvailableModels(): Promise<unknown> {
+		const res = await this.request({ type: "get_available_models" });
+		if (!res.success) throw new Error(`buffer get_available_models failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	async setModel(provider: string, modelId: string): Promise<unknown> {
+		const res = await this.request({ type: "set_model", provider, modelId });
+		if (!res.success) throw new Error(`buffer set_model failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	async setThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): Promise<void> {
+		const res = await this.request({ type: "set_thinking_level", level });
+		if (!res.success) throw new Error(`buffer set_thinking_level failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async setFollowUpMode(mode: "all" | "one-at-a-time"): Promise<void> {
+		const res = await this.request({ type: "set_follow_up_mode", mode });
+		if (!res.success) throw new Error(`buffer set_follow_up_mode failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async setSteeringMode(mode: "all" | "one-at-a-time"): Promise<void> {
+		const res = await this.request({ type: "set_steering_mode", mode });
+		if (!res.success) throw new Error(`buffer set_steering_mode failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async compact(customInstructions?: string): Promise<unknown> {
+		const res = await this.request({ type: "compact", customInstructions });
+		if (!res.success) throw new Error(`buffer compact failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	async setAutoCompaction(enabled: boolean): Promise<void> {
+		const res = await this.request({ type: "set_auto_compaction", enabled });
+		if (!res.success) throw new Error(`buffer set_auto_compaction failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async getSessionStats(): Promise<unknown> {
+		const res = await this.request({ type: "get_session_stats" });
+		if (!res.success) throw new Error(`buffer get_session_stats failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	async exportHtml(outputPath?: string): Promise<{ path: string }> {
+		const res = await this.request({ type: "export_html", outputPath });
+		if (!res.success) throw new Error(`buffer export_html failed: ${res.error ?? JSON.stringify(res.data)}`);
+		const data: any = res.data;
+		return { path: String(data?.path ?? "") };
+	}
+
+	async switchSession(sessionPath: string): Promise<void> {
+		const res = await this.request({ type: "switch_session", sessionPath });
+		if (!res.success) throw new Error(`buffer switch_session failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async getMessages(): Promise<unknown> {
+		const res = await this.request({ type: "get_messages" });
+		if (!res.success) throw new Error(`buffer get_messages failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	private request(cmd: BufferRpcCommand): Promise<BufferRpcResponse> {
+		const id = crypto.randomUUID();
+		const withId = { ...cmd, id };
+		const line = `${JSON.stringify(withId)}\n`;
+
+		return new Promise<BufferRpcResponse>((resolve, reject) => {
+			this.pending.set(id, { resolve, reject });
+			this.child.stdin.write(line, (err) => {
+				if (err) {
+					this.pending.delete(id);
+					reject(err);
+				}
+			});
+		});
+	}
+}

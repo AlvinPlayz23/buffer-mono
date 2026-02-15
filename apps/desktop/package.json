@@ -1,0 +1,31 @@
+{
+  "name": "buffer-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron ACP desktop client for buffer-agent",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron electron/main.cjs\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest --run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^18.3.4",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.1",
+    "electron": "^37.3.1",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.19",
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.5"
+  }
+}

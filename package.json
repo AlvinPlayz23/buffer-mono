@@ -1,40 +1,123 @@
 {
-	"name": "ca-cli",
-	"private": true,
-	"type": "module",
-	"workspaces": [
-		"packages/*"
-	],
-	"scripts": {
-		"clean": "pnpm -r run clean",
-		"build": "pnpm --dir packages/tui run build && pnpm --dir packages/ai run build && pnpm --dir packages/agent run build && pnpm --dir packages/coding-agent run build",
-		"dev": "concurrently --names \"ai,agent,coding-agent,tui\" --prefix-colors \"cyan,yellow,red,magenta\" \"pnpm --dir packages/ai run dev\" \"pnpm --dir packages/agent run dev\" \"pnpm --dir packages/coding-agent run dev\" \"pnpm --dir packages/tui run dev\"",
-		"dev:tsc": "concurrently --names \"ai,agent,coding-agent,tui\" --prefix-colors \"cyan,yellow,red,magenta\" \"pnpm --dir packages/ai run dev\" \"pnpm --dir packages/agent run dev\" \"pnpm --dir packages/coding-agent run dev\" \"pnpm --dir packages/tui run dev\"",
-		"check": "biome check --write --error-on-warnings . && tsc --noEmit",
-		"test": "pnpm -r --if-present run test",
-		"version:patch": "pnpm -r exec npm version patch --no-git-tag-version && pnpm install",
-		"version:minor": "pnpm -r exec npm version minor --no-git-tag-version && pnpm install",
-		"version:major": "pnpm -r exec npm version major --no-git-tag-version && pnpm install",
-		"version:set": "pnpm -r exec npm version",
-		"prepublishOnly": "pnpm run clean && pnpm run build && pnpm run check",
-		"publish": "pnpm run prepublishOnly && pnpm -r publish --access public",
-		"publish:dry": "pnpm run prepublishOnly && pnpm -r publish --access public --dry-run"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "2.3.5",
-		"@types/node": "^22.10.5",
-		"concurrently": "^9.2.1",
-		"tsx": "^4.20.3",
-		"typescript": "^5.9.2"
-	},
-	"engines": {
-		"node": ">=20.0.0"
-	},
-	"version": "0.52.10",
-	"overrides": {
-		"rimraf": "6.1.2",
-		"gaxios": {
-			"rimraf": "6.1.2"
-		}
-	}
+  "name": "buffer-agent",
+  "version": "0.52.10",
+  "description": "Coding agent CLI with integrated AI, agent core, and TUI modules",
+  "type": "module",
+  "piConfig": {
+    "name": "buffer",
+    "configDir": ".buffer"
+  },
+  "bin": {
+    "buffer": "dist/coding-agent/cli.js"
+  },
+  "main": "./dist/coding-agent/index.js",
+  "types": "./dist/coding-agent/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/coding-agent/index.d.ts",
+      "import": "./dist/coding-agent/index.js"
+    },
+    "./hooks": {
+      "types": "./dist/coding-agent/core/hooks/index.d.ts",
+      "import": "./dist/coding-agent/core/hooks/index.js"
+    }
+  },
+  "imports": {
+    "#buffer-ai": "./dist/buffer-ai/index.js",
+    "#buffer-ai/*": "./dist/buffer-ai/*",
+    "#buffer-agent-core": "./dist/buffer-agent-core/index.js",
+    "#buffer-agent-core/*": "./dist/buffer-agent-core/*",
+    "#buffer-tui": "./dist/buffer-tui/index.js",
+    "#buffer-tui/*": "./dist/buffer-tui/*"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "examples",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "generate-models": "tsx scripts/generate-models.ts",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "dev:tsc": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "build": "pnpm run generate-models && tsc -p tsconfig.build.json && shx chmod +x dist/coding-agent/cli.js && pnpm run copy-assets",
+    "start": "node dist/coding-agent/cli.js",
+    "copy-assets": "shx mkdir -p dist/coding-agent/modes/interactive/theme && shx cp src/coding-agent/modes/interactive/theme/*.json dist/coding-agent/modes/interactive/theme/ && shx mkdir -p dist/coding-agent/core/export-html/vendor && shx cp src/coding-agent/core/export-html/template.html src/coding-agent/core/export-html/template.css src/coding-agent/core/export-html/template.js dist/coding-agent/core/export-html/ && shx cp src/coding-agent/core/export-html/vendor/*.js dist/coding-agent/core/export-html/vendor/",
+    "check": "biome check --error-on-warnings . && tsc --noEmit",
+    "test": "pnpm run test:vitest && pnpm run test:node",
+    "test:vitest": "vitest --run test/buffer-ai test/buffer-agent-core test/coding-agent",
+    "test:node": "node --test --import tsx test/buffer-tui/*.test.ts",
+    "desktop:dev": "pnpm --dir apps/desktop dev",
+    "desktop:build": "pnpm --dir apps/desktop build",
+    "desktop:test": "pnpm --dir apps/desktop test",
+    "desktop:repair": "pnpm rebuild electron esbuild",
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run check"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.73.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.983.0",
+    "@google/genai": "^1.40.0",
+    "@mariozechner/jiti": "^2.6.2",
+    "@mistralai/mistralai": "1.10.0",
+    "@silvia-odwyer/photon-node": "^0.3.4",
+    "@sinclair/typebox": "^0.34.48",
+    "@smithy/node-http-handler": "^4.4.5",
+    "@types/mime-types": "^2.1.4",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "chalk": "^5.6.2",
+    "cli-highlight": "^2.1.11",
+    "diff": "^8.0.2",
+    "file-type": "^21.1.1",
+    "get-east-asian-width": "^1.3.0",
+    "glob": "^13.0.1",
+    "hosted-git-info": "^9.0.2",
+    "ignore": "^7.0.5",
+    "marked": "^15.0.12",
+    "mime-types": "^3.0.1",
+    "minimatch": "^10.1.1",
+    "openai": "6.10.0",
+    "partial-json": "^0.1.7",
+    "proper-lockfile": "^4.1.2",
+    "proxy-agent": "^6.5.0",
+    "undici": "^7.19.1",
+    "yaml": "^2.8.2",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "optionalDependencies": {
+    "@mariozechner/clipboard": "^0.3.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.5",
+    "@types/diff": "^7.0.2",
+    "@types/hosted-git-info": "^3.0.5",
+    "@types/ms": "^2.1.0",
+    "@types/node": "^24.3.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "@xterm/headless": "^5.5.0",
+    "@xterm/xterm": "^5.5.0",
+    "canvas": "^3.2.0",
+    "shx": "^0.4.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "overrides": {
+    "rimraf": "6.1.2",
+    "gaxios": {
+      "rimraf": "6.1.2"
+    }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "canvas",
+      "electron",
+      "esbuild",
+      "protobufjs"
+    ]
+  }
 }
