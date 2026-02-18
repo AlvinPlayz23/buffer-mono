@@ -12,6 +12,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { BufferRpcProcess, type BufferRpcEvent } from '../pi-rpc/process.js'
 import { SessionStore } from './session-store.js'
 import { toolResultToText } from './translate/pi-tools.js'
+import { normalizePiAssistantText } from './translate/pi-messages.js'
 import { expandSlashCommand, type FileSlashCommand } from './slash-commands.js'
 
 type SessionCreateParams = {
@@ -127,6 +128,9 @@ export class BufferAcpSession {
   // pi can emit multiple `turn_end` events for a single user prompt (e.g. after tool_use).
   // The overall agent loop completes when `agent_end` is emitted.
   private inAgentLoop = false
+  // Tracks assistant text sent to ACP for the active turn.
+  // Used to derive a delta from full-message snapshots when event shapes vary.
+  private lastAssistantText = ''
 
   // For ACP diff support: capture file contents before edits, then emit ToolCallContent {type:"diff"}.
   // This is due to pi sending diff as a string as opposed to ACP expected diff format.
@@ -270,6 +274,7 @@ export class BufferAcpSession {
   private startTurn(t: QueuedTurn): void {
     this.cancelRequested = false
     this.inAgentLoop = false
+    this.lastAssistantText = ''
 
     this.pendingTurn = { resolve: t.resolve, reject: t.reject }
 
@@ -310,11 +315,28 @@ export class BufferAcpSession {
         const ame = (ev as any).assistantMessageEvent
 
         // Stream assistant text.
-        if (ame?.type === 'text_delta' && typeof ame.delta === 'string') {
+        if ((ame?.type === 'text_delta' || ame?.type === 'text') && typeof ame.delta === 'string') {
+          this.lastAssistantText += ame.delta
           this.emit({
             sessionUpdate: 'agent_message_chunk',
             content: { type: 'text', text: ame.delta } satisfies ContentBlock
           })
+          break
+        }
+
+        if ((ame?.type === 'text_delta' || ame?.type === 'text') && typeof ame.text === 'string') {
+          const nextText = ame.text
+          let chunk = nextText
+          if (this.lastAssistantText && nextText.startsWith(this.lastAssistantText)) {
+            chunk = nextText.slice(this.lastAssistantText.length)
+          }
+          this.lastAssistantText = nextText
+          if (chunk) {
+            this.emit({
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: chunk } satisfies ContentBlock
+            })
+          }
           break
         }
 
@@ -371,6 +393,24 @@ export class BufferAcpSession {
           }
 
           break
+        }
+
+        // Fallback: derive text from full assistant message snapshots when no explicit
+        // text delta event is available.
+        const fullAssistantText = normalizePiAssistantText((ev as any)?.message?.content)
+        if (fullAssistantText) {
+          let chunk = fullAssistantText
+          if (this.lastAssistantText && fullAssistantText.startsWith(this.lastAssistantText)) {
+            chunk = fullAssistantText.slice(this.lastAssistantText.length)
+          }
+          this.lastAssistantText = fullAssistantText
+          if (chunk) {
+            this.emit({
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: chunk } satisfies ContentBlock
+            })
+            break
+          }
         }
 
         // (MVP) ignore other delta types (thinking, etc.) for now.

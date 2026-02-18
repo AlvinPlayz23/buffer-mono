@@ -133,6 +133,12 @@ type NdjsonStream = {
 	output: ReadableStream<Uint8Array>;
 };
 
+type AcpLogEvent = Record<string, unknown>;
+
+interface AgentSideConnectionOptions {
+	onLog?: (event: AcpLogEvent) => void;
+}
+
 export function ndJsonStream(input: WritableStream<Uint8Array>, output: ReadableStream<Uint8Array>): NdjsonStream {
 	return { input, output };
 }
@@ -140,11 +146,21 @@ export function ndJsonStream(input: WritableStream<Uint8Array>, output: Readable
 export class AgentSideConnection {
 	private readonly agent: Agent;
 	private readonly writer: WritableStreamDefaultWriter<Uint8Array>;
+	private readonly onLog?: (event: AcpLogEvent) => void;
 
-	constructor(factory: (conn: AgentSideConnection) => Agent, private readonly stream: NdjsonStream) {
+	constructor(
+		factory: (conn: AgentSideConnection) => Agent,
+		private readonly stream: NdjsonStream,
+		options?: AgentSideConnectionOptions,
+	) {
 		this.agent = factory(this);
 		this.writer = this.stream.input.getWriter();
+		this.onLog = options?.onLog;
 		void this.readLoop();
+	}
+
+	private log(event: AcpLogEvent): void {
+		this.onLog?.(event);
 	}
 
 	async sessionUpdate(params: { sessionId: string; update: SessionUpdate }): Promise<void> {
@@ -169,6 +185,7 @@ export class AgentSideConnection {
 				const line = buffer.slice(0, index).trim();
 				buffer = buffer.slice(index + 1);
 				if (line.length > 0) {
+					this.log({ kind: "rpc_in_raw", line });
 					await this.handleLine(line);
 				}
 				index = buffer.indexOf("\n");
@@ -181,8 +198,10 @@ export class AgentSideConnection {
 		try {
 			msg = JSON.parse(line);
 		} catch {
+			this.log({ kind: "rpc_in_parse_error", line });
 			return;
 		}
+		this.log({ kind: "rpc_in", payload: msg });
 
 		if (typeof msg?.method !== "string") return;
 		const id = msg.id;
@@ -235,6 +254,7 @@ export class AgentSideConnection {
 
 	private async send(payload: unknown): Promise<void> {
 		const line = `${JSON.stringify(payload)}\n`;
+		this.log({ kind: "rpc_out", payload });
 		await this.writer.write(new TextEncoder().encode(line));
 	}
 }

@@ -618,7 +618,12 @@ export async function main(args: string[]) {
 			process.exit(1);
 		}
 
-		await runAcpMode();
+		await runAcpMode({ acpLog: parsed.acpLog });
+	}
+
+	if (parsed.acpLog && !parsed.acp) {
+		console.error(chalk.red("Error: --acp-log requires --acp"));
+		process.exit(1);
 	}
 
 	// Read piped stdin content (if any) - skip for RPC mode which uses stdin for JSON-RPC

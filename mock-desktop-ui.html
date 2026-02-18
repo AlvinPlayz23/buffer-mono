@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Codex - Productivity App Interface</title>
+<!-- BEGIN: External Scripts -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- END: External Scripts -->
+<!-- BEGIN: Custom Styles -->
+<style data-purpose="layout-customizations">
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    /* Custom scrollbar for sidebar if needed */
+    .sidebar-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+    .sidebar-scroll::-webkit-scrollbar-thumb {
+      background: rgba(0,0,0,0.1);
+      border-radius: 10px;
+    }
+  </style>
+<!-- END: Custom Styles -->
+</head>
+<body class="h-full bg-white text-slate-900 overflow-hidden">
+<div class="flex h-full w-full" data-purpose="main-wrapper">
+<!-- BEGIN: LeftSidebar -->
+<aside class="w-64 flex-shrink-0 bg-[#f1f4ff] flex flex-col border-r border-slate-100" data-purpose="sidebar">
+<!-- Top Section -->
+<div class="p-4 space-y-4">
+<div class="flex items-center space-x-2 text-slate-500 hover:bg-slate-200/50 p-2 rounded-lg cursor-pointer transition-colors">
+<svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14"></path></svg>
+<span class="text-sm font-medium">New thread</span>
+</div>
+</div>
+<!-- Recent Activities Section -->
+<!-- Threads Folder Section -->
+<div class="mt-6 flex-1 sidebar-scroll overflow-y-auto px-4 pb-4">
+<div class="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+<span>Threads</span>
+<div class="flex space-x-1">
+<svg fill="none" height="12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="12" xmlns="http://www.w3.org/2000/svg"><path d="M11 21H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h5l2 3h9a2 2 0 0 1 2 2v2"></path><path d="M19 15v6"></path><path d="M16 18h6"></path></svg>
+<svg fill="none" height="12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="12" xmlns="http://www.w3.org/2000/svg"><line x1="4" x2="4" y1="21" y2="14"></line><line x1="4" x2="4" y1="10" y2="3"></line><line x1="12" x2="12" y1="21" y2="12"></line><line x1="12" x2="12" y1="8" y2="3"></line><line x1="20" x2="20" y1="21" y2="16"></line><line x1="20" x2="20" y1="12" y2="3"></line><line x1="2" x2="6" y1="14" y2="14"></line><line x1="10" x2="14" y1="8" y2="8"></line><line x1="18" x2="22" y1="16" y2="16"></line></svg>
+</div>
+</div>
+<ul class="space-y-1 text-slate-600 text-sm">
+<li class="flex items-center space-x-2 p-1 rounded hover:bg-slate-200/50 cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>recipe-app</span>
+</li>
+<li class="flex items-center space-x-2 p-1 rounded hover:bg-slate-200/50 cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<div class="flex items-center space-x-1">
+<span>My Skills</span>
+<span class="text-[10px] bg-slate-200/50 px-1 rounded text-slate-400">skills</span>
+</div>
+</li>
+<li class="flex items-center space-x-2 p-1 rounded hover:bg-slate-200/50 cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>photobooth</span>
+</li>
+<li class="flex items-center space-x-2 p-1 rounded hover:bg-slate-200/50 cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>developers-website</span>
+</li>
+<li class="flex items-center space-x-2 p-1 rounded hover:bg-slate-200/50 cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>wanderlust</span>
+</li>
+<li class="flex items-center space-x-2 p-1 rounded hover:bg-slate-200/50 cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>openai-apps-sdk-examples</span>
+</li>
+<li class="flex items-center space-x-2 p-1 rounded hover:bg-slate-200/50 cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>game-experiment</span>
+</li>
+</ul>
+</div>
+<!-- Footer for Sidebar -->
+<div class="p-4 border-t border-slate-200/50 flex items-center justify-between text-slate-500">
+<div class="flex items-center space-x-2">
+<svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 1 0 10 10H12V2z"></path><path d="M12 12L2.1 12.3A10.1 10.1 0 0 1 12 2v10z"></path></svg>
+<span class="text-xs font-semibold">OpenAI</span>
+</div>
+</div>
+</aside>
+<!-- END: LeftSidebar -->
+<!-- BEGIN: MainContent -->
+<main class="flex-1 flex flex-col min-h-0 relative" data-purpose="main-content">
+<!-- BEGIN: TopBar -->
+<header class="h-14 flex items-center justify-between px-6 bg-white" data-purpose="top-bar">
+<div class="text-sm font-semibold text-slate-700">New thread</div>
+<div class="flex items-center space-x-3">
+<div class="flex items-center space-x-2 px-2 text-slate-400">
+<button class="hover:text-slate-600"><svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M12 19a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"></path><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></button>
+<button class="hover:text-slate-600"><svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><rect height="18" rx="2" ry="2" width="18" x="3" y="3"></rect><line x1="9" x2="9" y1="3" y2="21"></line></svg></button>
+<button class="hover:text-slate-600"><svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><rect height="18" rx="2" ry="2" width="18" x="3" y="3"></rect><path d="M11 9h4v4"></path><path d="m9 15 6-6"></path></svg></button>
+</div>
+</div>
+</header>
+<!-- END: TopBar -->
+<!-- BEGIN: CenterHero -->
+<section class="flex-1 flex flex-col items-center justify-center -mt-20" data-purpose="hero-section">
+<div class="flex flex-col items-center mb-12">
+<!-- Logo Cloud Icon -->
+<div class="w-12 h-12 mb-6 text-slate-800">
+<svg class="w-full h-full" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewbox="0 0 24 24">
+<path d="M17.5 19c.6 0 1.1-.4 1.4-.9.4-.6.5-1.4.3-2.1-.3-.9-1-1.6-1.9-1.9a1.5 1.5 0 0 1-.9-1.4c0-2.2-1.8-4-4-4-1.4 0-2.7.7-3.4 1.9a1.5 1.5 0 0 1-1.3.8c-2 0-3.6 1.6-3.6 3.6 0 .5.1 1 .3 1.4.3.6.8.9 1.4.9h11.7Z"></path>
+<path d="M9 14.5h.01M13 14.5h.01" stroke-width="2"></path>
+<path d="M10 16.5c.5.3 1.5.3 2 0"></path>
+</svg>
+</div>
+<h1 class="text-4xl font-medium text-slate-800">Let's build</h1>
+<div class="relative flex items-center space-x-1 mt-1 cursor-pointer group">
+<div class="flex items-center space-x-1">
+<span class="text-4xl font-medium text-slate-600">photobooth</span>
+<svg class="text-slate-500 mt-1" fill="none" height="28" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="28" xmlns="http://www.w3.org/2000/svg">
+<path d="m6 9 6 6 6-6"></path>
+</svg>
+</div>
+<!-- Dropdown Menu -->
+<div class="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-64 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-2 hidden group-hover:block">
+<div class="px-4 py-2 border-b border-slate-50 mb-1">
+<span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Choose threads</span>
+</div>
+<ul class="text-sm text-slate-600">
+<li class="flex items-center space-x-3 px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>recipe-app</span>
+</li>
+<li class="flex items-center space-x-3 px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<div class="flex items-center space-x-2">
+<span>My Skills</span>
+<span class="text-[10px] bg-slate-100 px-1 rounded text-slate-400">skills</span>
+</div>
+</li>
+<li class="flex items-center space-x-3 px-4 py-2 bg-slate-50 transition-colors cursor-pointer">
+<svg class="text-blue-500" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span class="font-medium text-slate-900">photobooth</span>
+<svg class="ml-auto text-blue-500" fill="none" height="12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" viewbox="0 0 24 24" width="12"><path d="M20 6 9 17l-5-5"></path></svg>
+</li>
+<li class="flex items-center space-x-3 px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>developers-website</span>
+</li>
+<li class="flex items-center space-x-3 px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>wanderlust</span>
+</li>
+<li class="flex items-center space-x-3 px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>openai-apps-sdk-examples</span>
+</li>
+<li class="flex items-center space-x-3 px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer">
+<svg class="text-slate-400" fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+<span>game-experiment</span>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<!-- Suggestion Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-3 w-full max-w-2xl px-4" data-purpose="suggestions">
+<div class="flex flex-col items-start p-4 border border-slate-100 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors group">
+<div class="text-slate-500 mb-3">
+<svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="20"><rect height="12" rx="2" width="20" x="2" y="6"></rect><path d="M6 12h.01M18 12h.01M12 15h.01M12 9h.01"></path></svg>
+</div>
+<span class="text-[13px] text-slate-600">Create a classic snake game</span>
+</div>
+<div class="flex flex-col items-start p-4 border border-slate-100 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors group">
+<div class="text-slate-500 mb-3">
+<svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="20"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+</div>
+<span class="text-[13px] text-slate-600">Find and fix a bugs in my code</span>
+</div>
+<div class="flex flex-col items-start p-4 border border-slate-100 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors group">
+<div class="text-slate-500 mb-3">
+<svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="20"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+</div>
+<span class="text-[13px] text-slate-600">Summarize this app in a $pdf</span>
+</div>
+</div>
+<div class="mt-6">
+<button class="text-[10px] text-slate-400 hover:text-slate-600 uppercase tracking-widest font-bold">Explore more</button>
+</div>
+</section>
+<!-- END: CenterHero -->
+<!-- BEGIN: BottomInputArea -->
+<div class="px-6 pb-6 mt-auto" data-purpose="bottom-container">
+<div class="max-w-3xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-lg shadow-slate-200/50 p-3 overflow-hidden" data-purpose="chat-input-wrapper">
+<input class="w-full border-none focus:ring-0 text-sm text-slate-700 placeholder-slate-400 mb-4 px-2" placeholder="Ask Codex anything, @ to add files, / for commands" type="text"/>
+<div class="flex items-center justify-between px-1">
+<div class="flex items-center space-x-2">
+<button class="text-slate-400 hover:text-slate-600 p-1">
+<svg fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="18" xmlns="http://www.w3.org/2000/svg"><path d="M5 12h14M12 5v14"></path></svg>
+</button>
+<div class="flex items-center space-x-1 border border-slate-100 bg-slate-50 px-2 py-1 rounded-md cursor-pointer hover:bg-slate-100 transition-colors">
+<span class="text-[10px] text-slate-500 font-medium">GPT-5.2-Codex</span>
+<svg class="text-slate-400" fill="none" height="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="10" xmlns="http://www.w3.org/2000/svg"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+<div class="flex items-center space-x-1 border border-slate-100 bg-slate-50 px-2 py-1 rounded-md cursor-pointer hover:bg-slate-100 transition-colors">
+<span class="text-[10px] text-slate-500 font-medium">Extra high</span>
+<svg class="text-slate-400" fill="none" height="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="10" xmlns="http://www.w3.org/2000/svg"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+</div>
+<div class="flex items-center space-x-3 text-slate-400">
+<button class="hover:text-slate-600"><svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><rect height="11" rx="2" ry="2" width="18" x="3" y="11"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></button>
+<button class="hover:text-slate-600"><svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg></button>
+<button class="bg-slate-800 text-white p-1.5 rounded-lg hover:bg-black transition-colors shadow-sm">
+<svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- END: BottomInputArea -->
+<!-- BEGIN: FooterStatus -->
+<!-- END: FooterStatus -->
+</main>
+<!-- END: MainContent -->
+</div>
+</body></html>

@@ -40,6 +40,7 @@ export interface Args {
 	listModels?: string | true;
 	verbose?: boolean;
 	acp?: boolean;
+	acpLog?: boolean;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -154,6 +155,8 @@ export function parseArgs(args: string[], extensionFlags?: Map<string, { type: "
 			result.verbose = true;
 		} else if (arg === "--acp") {
 			result.acp = true;
+		} else if (arg === "--acp-log") {
+			result.acpLog = true;
 		} else if (arg.startsWith("@")) {
 			result.fileArgs.push(arg.slice(1)); // Remove @ prefix
 		} else if (arg.startsWith("--") && extensionFlags) {
@@ -221,6 +224,7 @@ ${chalk.bold("Options:")}
   --list-models [search]         List available models (with optional fuzzy search)
   --verbose                      Force verbose startup (overrides quietStartup setting)
   --acp                          Run Agent Client Protocol server over stdio
+  --acp-log                      Log structured ACP raw traffic/events to stderr (requires --acp)
   --help, -h                     Show this help
   --version, -v                  Show version number
 

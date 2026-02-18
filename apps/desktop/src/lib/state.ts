@@ -43,7 +43,25 @@ function appendMessage(messages: SessionMessage[], role: SessionMessage["role"],
   const next = [...messages];
   const last = next[next.length - 1];
   if (last && last.role === role) {
-    last.text += text;
+    // Some ACP agents stream cumulative chunks (full text so far) rather than deltas.
+    // Handle both safely to avoid duplicated output.
+    if (text === last.text) return next;
+    if (text.startsWith(last.text)) {
+      last.text = text;
+      return next;
+    }
+    if (last.text.startsWith(text)) {
+      return next;
+    }
+
+    // Delta mode (or mixed): append only the non-overlapping suffix when possible.
+    if (text.length > 1 && last.text.endsWith(text)) return next;
+    let overlap = Math.min(last.text.length, text.length);
+    while (overlap > 0) {
+      if (last.text.slice(-overlap) === text.slice(0, overlap)) break;
+      overlap--;
+    }
+    last.text += text.slice(overlap);
   } else {
     next.push({ role, text });
   }
@@ -96,7 +114,8 @@ export function reduceEvent(state: AppState, event: DesktopEvent): AppState {
         messages: appendMessage(state.messages, "user", content.text)
       };
     }
-    case "thought_chunk": {
+    case "thought_chunk":
+    case "agent_thought_chunk": {
       const content = update.content as { type?: string; text?: string };
       if (content?.type !== "text" || !content.text) return state;
       return {

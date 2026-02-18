@@ -1,7 +1,14 @@
 import { AgentSideConnection, ndJsonStream } from "./sdk.js";
 import { BufferAcpAgent } from "./acp/agent.js";
 
-export async function runAcpMode(): Promise<never> {
+export async function runAcpMode(options?: { acpLog?: boolean }): Promise<never> {
+	const acpLog = options?.acpLog === true;
+	const log = (event: Record<string, unknown>) => {
+		if (!acpLog) return;
+		const payload = { ts: new Date().toISOString(), ...event };
+		process.stderr.write(`[ACP_LOG] ${JSON.stringify(payload)}\n`);
+	};
+
 	const input = new WritableStream<Uint8Array>({
 		write(chunk) {
 			return new Promise<void>((resolve, reject) => {
@@ -22,11 +29,20 @@ export async function runAcpMode(): Promise<never> {
 	});
 
 	const stream = ndJsonStream(input, output);
-	new AgentSideConnection((conn) => new BufferAcpAgent(conn), stream);
+	new AgentSideConnection((conn) => new BufferAcpAgent(conn), stream, {
+		onLog: (event) => log(event),
+	});
+	log({ kind: "acp_server_start" });
 
 	process.stdin.resume();
-	process.on("SIGINT", () => process.exit(0));
-	process.on("SIGTERM", () => process.exit(0));
+	process.on("SIGINT", () => {
+		log({ kind: "signal", signal: "SIGINT" });
+		process.exit(0);
+	});
+	process.on("SIGTERM", () => {
+		log({ kind: "signal", signal: "SIGTERM" });
+		process.exit(0);
+	});
 
 	return new Promise<never>(() => {});
 }
