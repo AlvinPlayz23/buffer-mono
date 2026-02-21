@@ -406,10 +406,12 @@ function sendEventToRenderer(event) {
 rpc.onEvent((event) => {
   if (event.type === "connected") {
     sendEventToRenderer({ type: "acp_status_update", status: "connected" });
+    return;
   }
   if (event.type === "disconnected" || event.type === "stopped") {
     acpInitialized = false;
     sendEventToRenderer({ type: "acp_status_update", status: "disconnected" });
+    return;
   }
   sendEventToRenderer(event);
 });
@@ -722,14 +724,28 @@ app.whenReady().then(async () => {
   createWindow();
   const settings = loadSettings();
   if (settings.autoStartAcp) {
-    try {
-      await ensureAcpStarted();
-    } catch (error) {
-      sendEventToRenderer({
-        type: "acp_status_update",
-        status: "error",
-        reason: error instanceof Error ? error.message : String(error)
-      });
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await ensureAcpStarted();
+        break;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (attempt < maxRetries) {
+          sendEventToRenderer({
+            type: "acp_status_update",
+            status: "starting",
+            reason: `Retry ${attempt}/${maxRetries}: ${reason}`
+          });
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          sendEventToRenderer({
+            type: "acp_status_update",
+            status: "error",
+            reason: `Failed after ${maxRetries} attempts: ${reason}`
+          });
+        }
+      }
     }
   }
 });

@@ -96,6 +96,8 @@ export function reduceEvent(state: AppState, event: DesktopEvent): AppState {
 
   if (event.type !== "session_update") return state;
 
+  if (state.sessionId && event.params.sessionId !== state.sessionId) return state;
+
   const update = event.params.update;
   switch (update.sessionUpdate) {
     case "agent_message_chunk": {

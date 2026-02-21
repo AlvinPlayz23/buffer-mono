@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getDesktopApi } from "./lib/api";
 import { initialState, reduceEvent, type AppState } from "./lib/state";
 import type {
@@ -13,6 +13,13 @@ import type {
 const api = getDesktopApi();
 
 type RememberMap = Record<string, string>;
+
+const THEMES = [
+  { id: "midnight", name: "Midnight", icon: "🌙" },
+  { id: "dawn", name: "Dawn", icon: "🌅" },
+  { id: "forest", name: "Forest", icon: "🌲" },
+  { id: "arctic", name: "Arctic", icon: "❄" }
+] as const;
 
 function formatThreadName(path: string): string {
   const normalized = path.replace(/\\/g, "/");
@@ -38,13 +45,24 @@ export function App() {
   const [rememberChoice, setRememberChoice] = useState(false);
   const [sessionRemember, setSessionRemember] = useState<RememberMap>({});
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [initInfo, setInitInfo] = useState<{ agentName?: string; protocolVersion?: number }>({});
+  const [, setInitInfo] = useState<{ agentName?: string; protocolVersion?: number }>({});
   const [acpStatus, setAcpStatus] = useState<"starting" | "connected" | "disconnected" | "error">("disconnected");
 
   const [busy, setBusy] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashFilter, setSlashFilter] = useState("");
+  const [slashSelectedIdx, setSlashSelectedIdx] = useState(0);
+  const [theme, setTheme] = useState("midnight");
+
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const sessionRememberRef = useRef(sessionRemember);
+  sessionRememberRef.current = sessionRemember;
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const toolCalls = useMemo(() => Object.values(state.toolCalls), [state.toolCalls]);
   const activeToolCalls = useMemo(
@@ -52,7 +70,35 @@ export function App() {
     [toolCalls]
   );
   const recentToolCalls = useMemo(() => toolCalls.slice(-6).reverse(), [toolCalls]);
-  const canSend = Boolean(promptInput.trim()) && !isSending && !busy && !!activeThreadId;
+  const canSend = Boolean(promptInput.trim()) && !isSending && !busy && !!activeThreadId && acpStatus === "connected";
+
+  const filteredSlashCommands = useMemo(() => {
+    if (!showSlashMenu) return [];
+    const q = slashFilter.toLowerCase();
+    return state.availableCommands.filter((cmd) => cmd.name.toLowerCase().startsWith(q));
+  }, [showSlashMenu, slashFilter, state.availableCommands]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  function handlePromptChange(value: string) {
+    setPromptInput(value);
+    if (value.startsWith("/")) {
+      const query = value.slice(1).split(/\s/)[0] || "";
+      setSlashFilter(query);
+      setShowSlashMenu(true);
+      setSlashSelectedIdx(0);
+    } else {
+      setShowSlashMenu(false);
+    }
+  }
+
+  function insertSlashCommand(name: string) {
+    setPromptInput(`/${name} `);
+    setShowSlashMenu(false);
+    textareaRef.current?.focus();
+  }
 
   function resetConversationView(newSessionId = "") {
     setActiveSessionId(newSessionId);
@@ -114,8 +160,8 @@ export function App() {
   }
 
   async function loadSessionForThread(thread: ThreadItem, sessionId: string): Promise<void> {
-    const result = await api.loadSession({ threadId: thread.id, sessionId, cwd: thread.path, mcpServers: [] });
     resetConversationView(sessionId);
+    const result = await api.loadSession({ threadId: thread.id, sessionId, cwd: thread.path, mcpServers: [] });
 
     const modes = Array.isArray(result?.modes?.availableModes) ? result.modes.availableModes : [];
     const currentModeId = String(result?.modes?.currentModeId || "");
@@ -145,8 +191,6 @@ export function App() {
       const latest = sessionResult.sessions[0];
       if (latest) {
         await loadSessionForThread(selected, latest.id);
-      } else {
-        await createSessionForThread(selected);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to open thread");
@@ -178,7 +222,7 @@ export function App() {
     setBusy(true);
     setAcpStatus("starting");
     try {
-      await api.start({ launchCommand: settings.acpLaunchCommand, cwd: settings.cwd || process.cwd() });
+      await api.start({ launchCommand: settings.acpLaunchCommand, cwd: settings.cwd || "" });
       const initialized = await api.initialize({
         protocolVersion: 1,
         clientCapabilities: {
@@ -292,6 +336,17 @@ export function App() {
   }
 
   useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(""), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [state.messages, activeToolCalls]);
+
+  useEffect(() => {
     let unlisten: (() => void) | undefined;
     void (async () => {
       const loadedSettings = await api.getSettings();
@@ -319,10 +374,10 @@ export function App() {
 
         if (event.type === "permission_request") {
           const kind = event.params.toolCall?.kind || "other";
-          const rememberedOption = sessionRemember[kind];
+          const rememberedOption = sessionRememberRef.current[kind];
           const available = event.params.options.find((option) => option.optionId === rememberedOption);
 
-          if (settings.autoAllow) {
+          if (settingsRef.current.autoAllow) {
             const firstAllow = event.params.options.find((option) => option.kind.startsWith("allow"));
             if (firstAllow) {
               void api.respondPermission(event.requestId, {
@@ -351,10 +406,18 @@ export function App() {
     };
   }, []);
 
+  const activeThread = threads.find((t) => t.id === activeThreadId);
+
   return (
     <div className="thread-layout">
       <aside className="thread-sidebar">
-        <button className="btn btn-new-thread" onClick={createThread}>+ New thread</button>
+        <div className="sidebar-header">
+          <span className="sidebar-brand">Buffer</span>
+          <span className={`status-dot ${acpStatus}`} title={acpStatus} />
+        </div>
+        <button className="btn btn-new-thread" onClick={createThread} disabled={busy}>
+          <span className="btn-icon">+</span> New thread
+        </button>
         <div className="thread-sidebar-title">THREADS</div>
         <ul className="thread-list">
           {threads.map((thread) => (
@@ -372,8 +435,18 @@ export function App() {
                     <li key={session.id}>
                       <button
                         className={`session-item ${session.id === activeSessionId ? "active" : ""}`}
-                        onClick={() => {
-                          void loadSessionForThread(thread, session.id);
+                        disabled={busy}
+                        onClick={async () => {
+                          if (busy || session.id === activeSessionId) return;
+                          setBusy(true);
+                          setError("");
+                          try {
+                            await loadSessionForThread(thread, session.id);
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : "Failed to load session");
+                          } finally {
+                            setBusy(false);
+                          }
                         }}
                       >
                         {session.title || "Untitled session"}
@@ -390,66 +463,47 @@ export function App() {
       <main className="app-shell">
         <header className="chat-header">
           <div className="chat-title">
-            <h1>{threads.find((t) => t.id === activeThreadId)?.name || "New thread"}</h1>
+            <h1>{activeThread?.name || "Buffer"}</h1>
             <span className={`status-pill ${acpStatus}`}>{acpStatus}</span>
-            {initInfo.agentName && <span>{initInfo.agentName} v{initInfo.protocolVersion}</span>}
-            {!!activeSessionId && <span className="session-chip">{activeSessionId}</span>}
           </div>
 
           <div className="chat-controls">
-            <select aria-label="Model" value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)}>
-              <option value="">Model</option>
-              {state.models.map((model) => (
-                <option key={model.modelId} value={model.modelId}>
-                  {model.name || model.modelId}
-                </option>
-              ))}
-            </select>
-            <button className="btn" onClick={() => changeModel(selectedModelId)} disabled={!selectedModelId || !activeThreadId || busy}>
-              Apply
-            </button>
-            <select aria-label="Mode" value={state.currentModeId} onChange={(e) => changeMode(e.target.value)}>
-              <option value="">Mode</option>
-              {state.modes.map((mode) => (
-                <option key={mode.id} value={mode.id}>
-                  {mode.name}
-                </option>
-              ))}
-            </select>
-            <button className="btn settings-button" onClick={() => setShowSettings(true)}>Settings</button>
+            <button className="btn-icon-only" onClick={() => setShowSettings(true)} title="Settings">⚙</button>
           </div>
         </header>
 
         <main className="chat-main">
           {state.messages.length === 0 && (
             <div className="empty-state">
-              <div className="empty-logo">☁</div>
-              <h2>Let's build</h2>
-              <h3>{threads.find((t) => t.id === activeThreadId)?.name || "your project"}</h3>
+              <div className="empty-logo-glow">
+                <div className="empty-logo">⚡</div>
+              </div>
+              <h2>What shall we build?</h2>
+              <h3>{activeThread?.name || "Select a thread to start"}</h3>
               <div className="suggestion-grid">
                 {[
-                  "Create a classic snake game",
-                  "Find and fix a bug in my code",
-                  "Summarize this app in a short doc"
+                  { text: "Create a classic snake game", icon: "🎮" },
+                  { text: "Find and fix a bug in my code", icon: "🔍" },
+                  { text: "Summarize this app in a short doc", icon: "📄" }
                 ].map((idea) => (
                   <button
-                    key={idea}
+                    key={idea.text}
                     className="suggestion-card"
-                    onClick={() => setPromptInput(idea)}
+                    onClick={() => setPromptInput(idea.text)}
                     disabled={!activeThreadId || busy || isSending}
                   >
-                    {idea}
+                    <span className="suggestion-icon">{idea.icon}</span>
+                    <span>{idea.text}</span>
                   </button>
                 ))}
               </div>
-              <div className="empty-actions">
-                {acpStatus === "connected" ? (
-                  <button className="btn" onClick={() => void stopAcp()} disabled={busy}>Connected - Stop ACP</button>
-                ) : (
-                  <button className="btn btn-primary" onClick={connectAndInitialize} disabled={busy}>Start ACP</button>
-                )}
-                <button className="btn" onClick={() => setShowSettings(true)}>Settings</button>
-              </div>
+              {acpStatus !== "connected" && (
+                <div className="empty-actions">
+                  <button className="btn btn-primary" onClick={connectAndInitialize} disabled={busy}>
+                    {acpStatus === "starting" ? "Connecting…" : "Start ACP"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -487,37 +541,118 @@ export function App() {
               ))}
             </section>
           )}
+
+          <div ref={chatEndRef} />
         </main>
 
         <footer className="composer-wrap">
           <div className="composer-box">
+            {showSlashMenu && filteredSlashCommands.length > 0 && (
+              <div className="slash-menu">
+                {filteredSlashCommands.map((cmd, idx) => (
+                  <button
+                    key={cmd.name}
+                    className={`slash-menu-item ${idx === slashSelectedIdx ? "active" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insertSlashCommand(cmd.name);
+                    }}
+                    onMouseEnter={() => setSlashSelectedIdx(idx)}
+                  >
+                    <strong>/{cmd.name}</strong>
+                    {cmd.description && <span>{cmd.description}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
-              placeholder={activeThreadId ? "Ask Codex anything..." : "Create or select a thread first..."}
+              ref={textareaRef}
+              placeholder={activeThreadId ? "Message Buffer… Type / for commands" : "Select a thread to start…"}
               value={promptInput}
               disabled={isSending || !activeThreadId}
-              onChange={(e) => setPromptInput(e.target.value)}
+              onChange={(e) => handlePromptChange(e.target.value)}
               onKeyDown={(e) => {
+                if (showSlashMenu && filteredSlashCommands.length > 0) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSlashSelectedIdx((i) => (i + 1) % filteredSlashCommands.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSlashSelectedIdx((i) => (i - 1 + filteredSlashCommands.length) % filteredSlashCommands.length);
+                    return;
+                  }
+                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                    e.preventDefault();
+                    insertSlashCommand(filteredSlashCommands[slashSelectedIdx].name);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setShowSlashMenu(false);
+                    return;
+                  }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   void sendPrompt();
                 }
               }}
+              onBlur={() => setTimeout(() => setShowSlashMenu(false), 150)}
             />
             <div className="composer-footer">
               <div className="composer-meta">
-                <span className="chip">Model: {selectedModelId || state.currentModelId || "Default"}</span>
-                <span className="chip">Mode: {state.currentModeId || "Default"}</span>
+                <select
+                  className="composer-select"
+                  aria-label="Model"
+                  value={selectedModelId || state.currentModelId}
+                  onChange={(e) => {
+                    if (e.target.value) void changeModel(e.target.value);
+                  }}
+                >
+                  <option value="" disabled>Select model…</option>
+                  {state.models.map((model) => (
+                    <option key={model.modelId} value={model.modelId}>
+                      {model.name || model.modelId}
+                    </option>
+                  ))}
+                  {state.models.length === 0 && (
+                    <option value="" disabled>No models available</option>
+                  )}
+                </select>
+                <select
+                  className="composer-select"
+                  aria-label="Mode"
+                  value={state.currentModeId}
+                  onChange={(e) => {
+                    if (e.target.value) void changeMode(e.target.value);
+                  }}
+                >
+                  <option value="" disabled>Select mode…</option>
+                  {state.modes.map((mode) => (
+                    <option key={mode.id} value={mode.id}>
+                      {mode.name}
+                    </option>
+                  ))}
+                  {state.modes.length === 0 && (
+                    <option value="" disabled>No modes available</option>
+                  )}
+                </select>
               </div>
               <div className="composer-actions">
-                <button className="btn" onClick={() => activeSessionId && api.cancel({ sessionId: activeSessionId })} disabled={!activeSessionId}>Stop</button>
-                <button className="btn btn-primary" onClick={sendPrompt} disabled={!canSend}>
+                {isSending && (
+                  <button className="btn btn-sm" onClick={() => activeSessionId && api.cancel({ sessionId: activeSessionId })}>
+                    Stop
+                  </button>
+                )}
+                <button className="btn btn-primary btn-sm btn-send" onClick={sendPrompt} disabled={!canSend}>
                   {isSending ? (
                     <span className="btn-loading">
                       <span className="spinner" />
-                      Sending
                     </span>
                   ) : (
-                    "Send"
+                    "↵"
                   )}
                 </button>
               </div>
@@ -530,8 +665,24 @@ export function App() {
             <aside className="settings-drawer" onClick={(e) => e.stopPropagation()}>
               <header>
                 <h2>Settings</h2>
-                <button className="btn" onClick={() => setShowSettings(false)}>Close</button>
+                <button className="btn btn-sm" onClick={() => setShowSettings(false)}>✕</button>
               </header>
+
+              <section>
+                <h3>Theme</h3>
+                <div className="theme-picker">
+                  {THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      className={`theme-chip ${theme === t.id ? "active" : ""}`}
+                      onClick={() => setTheme(t.id)}
+                    >
+                      <span>{t.icon}</span>
+                      <span>{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
 
               <section>
                 <h3>ACP Connection</h3>
@@ -543,7 +694,7 @@ export function App() {
                   />
                 </label>
                 <label>
-                  Default working directory
+                  Working directory
                   <input
                     value={settings.cwd}
                     onChange={(e) => setSettings((prev) => ({ ...prev, cwd: e.target.value }))}
@@ -555,7 +706,7 @@ export function App() {
                     checked={settings.autoAllow}
                     onChange={(e) => setSettings((prev) => ({ ...prev, autoAllow: e.target.checked }))}
                   />
-                  Auto-allow permission prompts
+                  Auto-allow permissions
                 </label>
                 <label className="checkbox-inline">
                   <input
@@ -563,11 +714,13 @@ export function App() {
                     checked={settings.autoStartAcp}
                     onChange={(e) => setSettings((prev) => ({ ...prev, autoStartAcp: e.target.checked }))}
                   />
-                  Auto-start ACP on app launch
+                  Auto-start ACP on launch
                 </label>
                 <div className="row-actions">
-                  <button className="btn btn-primary" disabled={busy} onClick={connectAndInitialize}>Start + Initialize</button>
-                  <button className="btn" onClick={() => void stopAcp()} disabled={busy}>Stop ACP</button>
+                  <button className="btn btn-primary" disabled={busy} onClick={connectAndInitialize}>
+                    {acpStatus === "connected" ? "Reconnect" : "Start ACP"}
+                  </button>
+                  <button className="btn" onClick={() => void stopAcp()} disabled={busy || acpStatus === "disconnected"}>Stop</button>
                 </div>
                 <div className="row-actions">
                   <button
@@ -577,27 +730,30 @@ export function App() {
                       setSettings(saved);
                     }}
                   >
-                    Save
+                    Save Settings
                   </button>
                 </div>
               </section>
 
               <details>
                 <summary>Slash Commands</summary>
-                <ul>
+                <ul className="cmd-list">
                   {state.availableCommands.map((cmd) => (
-                    <li key={cmd.name}>/{cmd.name} {cmd.description ? `- ${cmd.description}` : ""}</li>
+                    <li key={cmd.name}>
+                      <strong>/{cmd.name}</strong>
+                      {cmd.description && <span>{cmd.description}</span>}
+                    </li>
                   ))}
                 </ul>
               </details>
 
               <details>
-                <summary>Tool Calls</summary>
+                <summary>Tool Calls ({toolCalls.length})</summary>
                 {toolCalls.map((tool) => (
                   <article key={tool.toolCallId} className="drawer-card">
                     <header>
                       <strong>{tool.title || tool.toolCallId}</strong>
-                      <span>{tool.status || "pending"}</span>
+                      <span className={`tool-status-badge ${tool.status || "pending"}`}>{tool.status || "pending"}</span>
                     </header>
                     <p>{tool.kind || "other"}</p>
                     {tool.content !== undefined && tool.content !== null && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
@@ -607,10 +763,10 @@ export function App() {
 
               <details>
                 <summary>Plan</summary>
-                <ol>
+                <ol className="plan-list">
                   {state.plan.map((entry, idx) => (
-                    <li key={`${entry.content}-${idx}`}>
-                      {entry.content} ({entry.status || "pending"})
+                    <li key={`${entry.content}-${idx}`} className={`plan-item ${entry.status || "pending"}`}>
+                      {entry.content}
                     </li>
                   ))}
                 </ol>
@@ -628,14 +784,19 @@ export function App() {
           </div>
         )}
 
-        {error && <div className="error-toast">{error}</div>}
+        {error && (
+          <div className="error-toast" onClick={() => setError("")}>
+            {error}
+            <button className="error-dismiss">&times;</button>
+          </div>
+        )}
 
         {state.permissionRequest && (
           <div className="modal">
             <div className="modal-card">
               <h3>Permission Request</h3>
-              <p>{state.permissionRequest.title || "Tool execution request"}</p>
-              <p>Kind: {state.permissionRequest.toolKind || "other"}</p>
+              <p className="perm-title">{state.permissionRequest.title || "Tool execution request"}</p>
+              <p className="perm-kind">{state.permissionRequest.toolKind || "other"}</p>
               <div className="row-actions">
                 {state.permissionRequest.options.map((option) => (
                   <button className="btn" key={option.optionId} onClick={() => void respondPermission(option)}>
@@ -646,7 +807,7 @@ export function App() {
               </div>
               <label className="checkbox-inline">
                 <input type="checkbox" checked={rememberChoice} onChange={(e) => setRememberChoice(e.target.checked)} />
-                Remember this choice for this tool kind (session only)
+                Remember for this tool kind (session)
               </label>
             </div>
           </div>
