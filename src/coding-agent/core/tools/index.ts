@@ -33,6 +33,12 @@ export {
 	grepTool,
 } from "./grep.js";
 export {
+	createImplementTool,
+	type ImplementOperations,
+	type ImplementToolDetails,
+	type ImplementToolOptions,
+} from "./implement.js";
+export {
 	createLsTool,
 	type LsOperations,
 	type LsToolDetails,
@@ -49,6 +55,13 @@ export {
 	readTool,
 } from "./read.js";
 export {
+	createQuestionTool,
+	type QuestionOperations,
+	type QuestionToolDetails,
+	type QuestionToolInput,
+	type QuestionToolOptions,
+} from "./question.js";
+export {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	formatSize,
@@ -58,6 +71,12 @@ export {
 	truncateLine,
 	truncateTail,
 } from "./truncate.js";
+export {
+	createPlanCreateTool,
+	type PlanCreateOperations,
+	type PlanCreateToolInput,
+	type PlanCreateToolOptions,
+} from "./plan-create.js";
 export {
 	createWriteTool,
 	type WriteOperations,
@@ -71,7 +90,10 @@ import { type BashToolOptions, bashTool, createBashTool } from "./bash.js";
 import { createEditTool, editTool } from "./edit.js";
 import { createFindTool, findTool } from "./find.js";
 import { createGrepTool, grepTool } from "./grep.js";
+import { createImplementTool, type ImplementToolOptions } from "./implement.js";
 import { createLsTool, lsTool } from "./ls.js";
+import { createPlanCreateTool } from "./plan-create.js";
+import { createQuestionTool, type QuestionToolOptions } from "./question.js";
 import { createReadTool, type ReadToolOptions, readTool } from "./read.js";
 import { createWriteTool, writeTool } from "./write.js";
 
@@ -93,6 +115,21 @@ export const allTools = {
 	grep: grepTool,
 	find: findTool,
 	ls: lsTool,
+	implement: createImplementTool({
+		operations: {
+			confirmImplement: async () => {
+				throw new Error("Implement tool is not available in this runtime.");
+			},
+		},
+	}),
+	question: createQuestionTool({
+		operations: {
+			askQuestion: async () => {
+				throw new Error("Question tool is not available in this runtime.");
+			},
+		},
+	}),
+	plan_create: createPlanCreateTool({ cwd: process.cwd() }),
 };
 
 export type ToolName = keyof typeof allTools;
@@ -102,6 +139,10 @@ export interface ToolsOptions {
 	read?: ReadToolOptions;
 	/** Options for the bash tool */
 	bash?: BashToolOptions;
+	/** Options for the question tool */
+	question?: QuestionToolOptions;
+	/** Options for the implement tool */
+	implement?: ImplementToolOptions;
 }
 
 /**
@@ -135,5 +176,24 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd),
 		find: createFindTool(cwd),
 		ls: createLsTool(cwd),
+		implement: createImplementTool(
+			options?.implement ?? {
+				operations: {
+					confirmImplement: async () => {
+						throw new Error("Implement tool is not available in this runtime.");
+					},
+				},
+			},
+		),
+		question: createQuestionTool(
+			options?.question ?? {
+				operations: {
+					askQuestion: async () => {
+						throw new Error("Question tool is not available in this runtime.");
+					},
+				},
+			},
+		),
+		plan_create: createPlanCreateTool({ cwd }),
 	};
 }

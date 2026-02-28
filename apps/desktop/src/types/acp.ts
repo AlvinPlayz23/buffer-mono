@@ -42,7 +42,7 @@ export interface AppSettings {
   autoStartAcp: boolean;
 }
 
-export interface ThreadItem {
+export interface ProjectItem {
   id: string;
   name: string;
   path: string;
@@ -51,13 +51,21 @@ export interface ThreadItem {
   lastOpenedAt: string;
 }
 
-export interface SessionItem {
+export interface ThreadItem {
   id: string;
-  threadId: string;
+  projectId: string;
   title: string;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
+}
+
+export interface ProjectMeta {
+  availableCommands: Array<{ name: string; description?: string }>;
+  modes: Array<{ id: string; name: string; description?: string | null }>;
+  currentModeId: string;
+  models: Array<{ modelId: string; name: string; description?: string | null }>;
+  currentModelId: string;
 }
 
 export type DesktopEvent =
@@ -84,17 +92,20 @@ export interface DesktopApi {
   saveSettings(settings: AppSettings): Promise<AppSettings>;
   pickFolder(): Promise<{ path: string | null }>;
 
-  listThreads(): Promise<{ threads: ThreadItem[]; activeThreadId: string | null }>;
-  createThread(params: { path: string; name?: string }): Promise<{ threadId: string }>;
-  selectThread(threadId: string): Promise<{ thread: ThreadItem }>;
-  removeThread(threadId: string): Promise<{ ok: true }>;
+  listProjects(): Promise<{ projects: ProjectItem[]; activeProjectId: string | null }>;
+  createProject(params: { path: string; name?: string }): Promise<{ projectId: string }>;
+  selectProject(projectId: string): Promise<{ project: ProjectItem }>;
+  removeProject(projectId: string): Promise<{ ok: true }>;
 
-  listSessions(threadId: string): Promise<{ sessions: SessionItem[]; activeSessionId: string | null }>;
-  renameSession(sessionId: string, title: string): Promise<{ ok: true }>;
+  listThreads(projectId: string): Promise<{ threads: ThreadItem[]; activeThreadId: string | null }>;
+  renameThread(threadId: string, title: string): Promise<{ ok: true }>;
 
-  getThreadPrefs(threadId: string): Promise<{ preferredModelId?: string }>;
-  setThreadModelPref(threadId: string, modelId: string): Promise<{ ok: true }>;
+  getProjectPrefs(projectId: string): Promise<{ preferredModelId?: string }>;
+  setProjectModelPref(projectId: string, modelId: string): Promise<{ ok: true }>;
+  getProjectMeta(projectId: string): Promise<ProjectMeta | null>;
+  setProjectMeta(projectId: string, meta: Partial<ProjectMeta>): Promise<{ ok: true }>;
 
+  getAcpStatus(): Promise<{ status: "connected" | "starting" | "disconnected" }>;
   start(config: { launchCommand: string; cwd: string }): Promise<{ ok: true }>;
   stop(): Promise<{ ok: true }>;
   initialize(params: {
@@ -110,11 +121,13 @@ export interface DesktopApi {
     agentCapabilities?: Record<string, unknown>;
     authMethods?: Array<{ id?: string; name?: string }>;
   }>;
-  newSession(params: { threadId: string; cwd: string; mcpServers: unknown[] }): Promise<any>;
-  loadSession(params: { threadId: string; sessionId: string; cwd: string; mcpServers: unknown[] }): Promise<any>;
+  newSession(params: { projectId: string; cwd: string; mcpServers: unknown[] }): Promise<any>;
+  loadSession(params: { projectId: string; sessionId: string; cwd: string; mcpServers: unknown[] }): Promise<any>;
   prompt(params: { sessionId: string; prompt: ContentBlock[] }): Promise<{ stopReason: string }>;
   cancel(params: { sessionId: string }): Promise<{ ok: true }>;
+  deleteSession(params: { sessionId: string }): Promise<{ ok: true }>;
   setMode(params: { sessionId: string; modeId: string }): Promise<any>;
+  setModel(params: { sessionId: string; modelId: string }): Promise<any>;
   respondPermission(requestId: string, outcome: PermissionOutcome): Promise<{ ok: true }>;
   onEvent(callback: (event: DesktopEvent) => void): () => void;
 }

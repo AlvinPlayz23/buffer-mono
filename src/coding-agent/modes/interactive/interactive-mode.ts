@@ -187,6 +187,7 @@ export class InteractiveMode {
 	private autocompleteProvider: CombinedAutocompleteProvider | undefined;
 	private fdPath: string | undefined;
 	private editorContainer: Container;
+	private planModeIndicatorContainer: Container;
 	private footer: FooterComponent;
 	private footerDataProvider: FooterDataProvider;
 	private keybindings: KeybindingsManager;
@@ -314,6 +315,7 @@ export class InteractiveMode {
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
+		this.planModeIndicatorContainer = new Container();
 		this.footerDataProvider = new FooterDataProvider();
 		this.footer = new FooterComponent(session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(session.autoCompactionEnabled);
@@ -490,6 +492,7 @@ export class InteractiveMode {
 		this.renderWidgets(); // Initialize with default spacer
 		this.ui.addChild(this.widgetContainerAbove);
 		this.ui.addChild(this.editorContainer);
+		this.ui.addChild(this.planModeIndicatorContainer);
 		this.ui.addChild(this.widgetContainerBelow);
 		this.ui.addChild(this.footer);
 		this.ui.setFocus(this.editor);
@@ -528,6 +531,7 @@ export class InteractiveMode {
 
 		// Initialize available provider count for footer display
 		await this.updateAvailableProviderCount();
+		this.updatePlanModeIndicator();
 	}
 
 	/**
@@ -1860,6 +1864,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("externalEditor", () => this.openExternalEditor());
 		this.defaultEditor.onAction("followUp", () => this.handleFollowUp());
 		this.defaultEditor.onAction("dequeue", () => this.handleDequeue());
+		this.defaultEditor.onAction("toggleWorkMode", () => this.handlePlanToggle());
 		this.defaultEditor.onAction("newSession", () => this.handleClearCommand());
 		this.defaultEditor.onAction("tree", () => this.showTreeSelector());
 		this.defaultEditor.onAction("fork", () => this.showUserMessageSelector());
@@ -1915,6 +1920,11 @@ export class InteractiveMode {
 			if (text === "/view") {
 				this.showViewModeSelector();
 				this.editor.setText("");
+				return;
+			}
+			if (text === "/plan") {
+				this.editor.setText("");
+				this.handlePlanToggle();
 				return;
 			}
 			if (text === "/init-memory") {
@@ -2112,6 +2122,7 @@ export class InteractiveMode {
 			await this.init();
 		}
 
+		this.updatePlanModeIndicator();
 		this.footer.invalidate();
 
 		switch (event.type) {
@@ -3109,6 +3120,20 @@ export class InteractiveMode {
 		this.editorContainer.addChild(component);
 		this.ui.setFocus(focus);
 		this.ui.requestRender();
+	}
+
+	private updatePlanModeIndicator(): void {
+		this.planModeIndicatorContainer.clear();
+		if (this.session.workMode === "plan") {
+			this.planModeIndicatorContainer.addChild(new Text(theme.fg("warning", "PLAN MODE"), 1, 0));
+		}
+		this.ui.requestRender();
+	}
+
+	private handlePlanToggle(): void {
+		const nextMode = this.session.toggleWorkMode();
+		this.updatePlanModeIndicator();
+		this.showStatus(nextMode === "plan" ? "Plan mode enabled" : "Build mode enabled");
 	}
 
 	private showSettingsSelector(): void {
@@ -4459,6 +4484,7 @@ export class InteractiveMode {
 			"ctrl+o to expand tools",
 			"ctrl+t to expand thinking",
 			"ctrl+g for external editor",
+			"ctrl+tab to toggle plan mode",
 			"/ for commands",
 			"! to run bash",
 			"alt+enter to queue follow-up",
@@ -4512,6 +4538,7 @@ export class InteractiveMode {
 		const externalEditor = this.getAppKeyDisplay("externalEditor");
 		const followUp = this.getAppKeyDisplay("followUp");
 		const dequeue = this.getAppKeyDisplay("dequeue");
+		const toggleWorkMode = this.getAppKeyDisplay("toggleWorkMode");
 
 		let hotkeys = `
 **Navigation**
@@ -4554,6 +4581,7 @@ export class InteractiveMode {
 | \`${externalEditor}\` | Edit message in external editor |
 | \`${followUp}\` | Queue follow-up message |
 | \`${dequeue}\` | Restore queued messages |
+| \`${toggleWorkMode}\` | Toggle plan mode |
 | \`Ctrl+V\` | Paste image from clipboard |
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |

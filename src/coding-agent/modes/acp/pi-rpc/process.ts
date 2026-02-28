@@ -14,6 +14,7 @@ type BufferRpcCommand =
 	| { type: "set_thinking_level"; id?: string; level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" }
 	| { type: "set_follow_up_mode"; id?: string; mode: "all" | "one-at-a-time" }
 	| { type: "set_steering_mode"; id?: string; mode: "all" | "one-at-a-time" }
+	| { type: "set_work_mode"; id?: string; mode: "build" | "plan" }
 	| { type: "compact"; id?: string; customInstructions?: string }
 	| { type: "set_auto_compaction"; id?: string; enabled: boolean }
 	| { type: "get_session_stats"; id?: string }
@@ -186,6 +187,11 @@ export class BufferRpcProcess {
 	async setSteeringMode(mode: "all" | "one-at-a-time"): Promise<void> {
 		const res = await this.request({ type: "set_steering_mode", mode });
 		if (!res.success) throw new Error(`buffer set_steering_mode failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async setWorkMode(mode: "build" | "plan"): Promise<void> {
+		const res = await this.request({ type: "set_work_mode", mode });
+		if (!res.success) throw new Error(`buffer set_work_mode failed: ${res.error ?? JSON.stringify(res.data)}`);
 	}
 
 	async compact(customInstructions?: string): Promise<unknown> {

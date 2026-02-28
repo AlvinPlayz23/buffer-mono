@@ -94,6 +94,11 @@ export interface SetSessionModeResponse {
 	[key: string]: unknown;
 }
 
+export interface SetSessionModelRequest {
+	sessionId: string;
+	modelId: string;
+}
+
 export interface ModelInfo {
 	id?: string;
 	modelId?: string;
@@ -113,6 +118,7 @@ export interface Agent {
 	cancel(params: CancelNotification): Promise<void>;
 	loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse>;
 	setSessionMode?(params: SetSessionModeRequest): Promise<SetSessionModeResponse>;
+	setSessionModel?(params: SetSessionModelRequest): Promise<void>;
 }
 
 export class RequestError extends Error {
@@ -232,6 +238,11 @@ export class AgentSideConnection {
 					result = this.agent.setSessionMode
 						? await this.agent.setSessionMode(params as SetSessionModeRequest)
 						: { modes: [] };
+					break;
+				case "session/set_model":
+					if (this.agent.setSessionModel) {
+						result = await this.agent.setSessionModel(params as SetSessionModelRequest);
+					}
 					break;
 				default:
 					throw new RequestError(-32601, `Method not found: ${msg.method}`);

@@ -17,6 +17,7 @@ export interface BuiltinSlashCommand {
 
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },
+	{ name: "plan", description: "Toggle plan mode (planning-only workflow)" },
 	{ name: "view", description: "Switch terminal view mode (alt-mode or text-buffer)" },
 	{ name: "model", description: "Select model (opens selector UI)" },
 	{ name: "init-memory", description: "Initialize project memory (.buffer/memory.md)" },

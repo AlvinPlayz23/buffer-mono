@@ -29,6 +29,7 @@ export type AppAction =
 	| "externalEditor"
 	| "followUp"
 	| "dequeue"
+	| "toggleWorkMode"
 	| "pasteImage"
 	| "newSession"
 	| "tree"
@@ -65,6 +66,7 @@ export const DEFAULT_APP_KEYBINDINGS: Record<AppAction, KeyId | KeyId[]> = {
 	externalEditor: "ctrl+g",
 	followUp: "alt+enter",
 	dequeue: "alt+up",
+	toggleWorkMode: "ctrl+tab",
 	pasteImage: "ctrl+v",
 	newSession: [],
 	tree: [],
@@ -96,6 +98,7 @@ const APP_ACTIONS: AppAction[] = [
 	"externalEditor",
 	"followUp",
 	"dequeue",
+	"toggleWorkMode",
 	"pasteImage",
 	"newSession",
 	"tree",

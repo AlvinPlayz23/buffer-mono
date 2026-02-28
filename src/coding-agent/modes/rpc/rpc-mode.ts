@@ -373,6 +373,7 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 					isCompacting: session.isCompacting,
 					steeringMode: session.steeringMode,
 					followUpMode: session.followUpMode,
+					workMode: session.workMode,
 					sessionFile: session.sessionFile,
 					sessionId: session.sessionId,
 					sessionName: session.sessionName,
@@ -439,6 +440,11 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 			case "set_follow_up_mode": {
 				session.setFollowUpMode(command.mode);
 				return success(id, "set_follow_up_mode");
+			}
+
+			case "set_work_mode": {
+				session.setWorkMode(command.mode);
+				return success(id, "set_work_mode");
 			}
 
 			// =================================================================

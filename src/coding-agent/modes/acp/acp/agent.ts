@@ -69,6 +69,10 @@ function builtinAvailableCommands(): AvailableCommand[] {
       description: 'Show quick command and shortcut help for ACP sessions'
     },
     {
+      name: 'plan',
+      description: 'Toggle work mode between build and plan'
+    },
+    {
       name: 'view',
       description: 'Interactive-only terminal view mode (not supported in ACP)'
     }
@@ -437,7 +441,7 @@ export class BufferAcpAgent implements ACPAgent {
       if (cmd === 'help') {
         const text = [
           'ACP mode supports core slash commands:',
-          '/compact, /autocompact, /export, /session, /steering, /follow-up, /changelog, /model, /thinking',
+          '/compact, /autocompact, /export, /session, /steering, /follow-up, /changelog, /model, /thinking, /plan',
           '',
           'Interactive-only commands are not available in ACP.',
           'Bash input safety remains default-off in interactive mode (terminal.enableBashMode = false).',
@@ -448,6 +452,21 @@ export class BufferAcpAgent implements ACPAgent {
           update: {
             sessionUpdate: 'agent_message_chunk',
             content: { type: 'text', text }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'plan') {
+        const state = (await session.proc.getState()) as any
+        const current = String(state?.workMode ?? 'build').toLowerCase() === 'plan' ? 'plan' : 'build'
+        const next = current === 'plan' ? 'build' : 'plan'
+        await session.proc.setWorkMode(next)
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `Work mode set to: ${next}` }
           }
         })
         return { stopReason: 'end_turn' }
@@ -732,7 +751,7 @@ export class BufferAcpAgent implements ACPAgent {
     return response
   }
 
-  async unstable_setSessionModel(params: { sessionId: string; modelId: string }): Promise<void> {
+  async setSessionModel(params: { sessionId: string; modelId: string }): Promise<void> {
     const session = this.sessions.get(params.sessionId)
 
     // Accept either:
@@ -1038,4 +1057,3 @@ function readNearestPackageJson(metaUrl: string): {
   }
   return { name: 'buffer-acp', version: '0.0.0' }
 }
-

@@ -14,6 +14,9 @@ const toolDescriptions: Record<string, string> = {
 	grep: "Search file contents for patterns (respects .gitignore)",
 	find: "Find files by glob pattern (respects .gitignore)",
 	ls: "List directory contents",
+	implement: "Ask user to switch to build mode and start implementing the prepared plan",
+	question: "Ask the user a structured clarification question with options",
+	plan_create: "Create a markdown plan file under .buffer",
 };
 
 export interface BuildSystemPromptOptions {
@@ -29,6 +32,8 @@ export interface BuildSystemPromptOptions {
 	contextFiles?: Array<{ path: string; content: string }>;
 	/** Pre-loaded skills. */
 	skills?: Skill[];
+	/** Current work mode. */
+	workMode?: "build" | "plan";
 }
 
 /** Build the system prompt with tools, guidelines, and context */
@@ -40,6 +45,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 		cwd,
 		contextFiles: providedContextFiles,
 		skills: providedSkills,
+		workMode = "build",
 	} = options;
 	const resolvedCwd = cwd ?? process.cwd();
 
@@ -56,6 +62,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 	});
 
 	const appendSection = appendSystemPrompt ? `\n\n${appendSystemPrompt}` : "";
+	const workModeSection =
+		workMode === "plan"
+			? "\n\n# Work Mode\n\nYou are in PLAN MODE. Research and planning only. Do not implement or modify project code. Use structured questions when clarification is required."
+			: "\n\n# Work Mode\n\nYou are in BUILD MODE. Execute the requested implementation when appropriate.";
 
 	const contextFiles = providedContextFiles ?? [];
 	const skills = providedSkills ?? [];
@@ -66,6 +76,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 		if (appendSection) {
 			prompt += appendSection;
 		}
+		prompt += workModeSection;
 
 		// Append project context files
 		if (contextFiles.length > 0) {
@@ -165,6 +176,7 @@ Buffer documentation (read only when the user asks about buffer itself, its SDK,
 	if (appendSection) {
 		prompt += appendSection;
 	}
+	prompt += workModeSection;
 
 	// Append project context files
 	if (contextFiles.length > 0) {

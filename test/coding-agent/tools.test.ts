@@ -6,7 +6,10 @@ import { bashTool, createBashTool } from "../../src/coding-agent/core/tools/bash
 import { editTool } from "../../src/coding-agent/core/tools/edit.js";
 import { findTool } from "../../src/coding-agent/core/tools/find.js";
 import { grepTool } from "../../src/coding-agent/core/tools/grep.js";
+import { createImplementTool } from "../../src/coding-agent/core/tools/implement.js";
 import { lsTool } from "../../src/coding-agent/core/tools/ls.js";
+import { createPlanCreateTool } from "../../src/coding-agent/core/tools/plan-create.js";
+import { createQuestionTool } from "../../src/coding-agent/core/tools/question.js";
 import { readTool } from "../../src/coding-agent/core/tools/read.js";
 import { writeTool } from "../../src/coding-agent/core/tools/write.js";
 import * as shellModule from "../../src/coding-agent/utils/shell.js";
@@ -208,6 +211,107 @@ describe("Coding Agent Tools", () => {
 			const result = await writeTool.execute("test-call-4", { path: testFile, content });
 
 			expect(getTextOutput(result)).toContain("Successfully wrote");
+		});
+	});
+
+	describe("question tool", () => {
+		it("should return selected option", async () => {
+			const tool = createQuestionTool({
+				operations: {
+					askQuestion: async () => ({
+						answer: "Option B",
+						selectedIndex: 1,
+						isCustom: false,
+					}),
+				},
+			});
+
+			const result = await tool.execute("question-1", {
+				question: "Choose one",
+				options: ["Option A", "Option B"],
+			});
+
+			expect(getTextOutput(result)).toContain("User answer (option 2): Option B");
+			expect(result.details).toEqual({ selectedIndex: 1, isCustom: false });
+		});
+
+		it("should reject invalid option counts", async () => {
+			const tool = createQuestionTool({
+				operations: {
+					askQuestion: async () => ({ answer: "A", selectedIndex: 0, isCustom: false }),
+				},
+			});
+
+			await expect(
+				tool.execute("question-2", {
+					question: "Too few",
+					options: ["Only one"],
+				}),
+			).rejects.toThrow(/requires 2-3 options/i);
+		});
+	});
+
+	describe("implement tool", () => {
+		it("should return approved response when user confirms", async () => {
+			const tool = createImplementTool({
+				operations: {
+					confirmImplement: async () => true,
+				},
+			});
+
+			const result = await tool.execute("implement-1", {});
+			expect(getTextOutput(result)).toContain("Implementation approved");
+			expect(result.details).toEqual({ approved: true });
+		});
+
+		it("should return postponed response when user defers", async () => {
+			const tool = createImplementTool({
+				operations: {
+					confirmImplement: async () => false,
+				},
+			});
+
+			const result = await tool.execute("implement-2", {});
+			expect(getTextOutput(result)).toContain("Implementation postponed");
+			expect(result.details).toEqual({ approved: false });
+		});
+	});
+
+	describe("plan_create tool", () => {
+		it("should create markdown plan under .buffer in workspace root", async () => {
+			const workspaceRoot = join(testDir, "workspace");
+			const nestedCwd = join(workspaceRoot, "apps", "api");
+			mkdirSync(join(workspaceRoot, ".git"), { recursive: true });
+			mkdirSync(nestedCwd, { recursive: true });
+
+			const tool = createPlanCreateTool({ cwd: nestedCwd });
+			await tool.execute("plan-create-1", {
+				path: "plans/refactor.md",
+				content: "# Refactor Plan\n\n1. A\n2. B",
+			});
+
+			const savedPath = join(workspaceRoot, ".buffer", "plans", "refactor.md");
+			expect(readFileSync(savedPath, "utf-8")).toContain("# Refactor Plan");
+		});
+
+		it("should reject non-markdown file path", async () => {
+			const tool = createPlanCreateTool({ cwd: testDir });
+			await expect(
+				tool.execute("plan-create-2", {
+					path: "plans/refactor.txt",
+					content: "x",
+				}),
+			).rejects.toThrow(/only supports \.md/i);
+		});
+
+		it("should reject path traversal outside .buffer", async () => {
+			const tool = createPlanCreateTool({ cwd: testDir });
+			await expect(
+				tool.execute("plan-create-3", {
+					path: "../escape.md",
+					content: "x",
+				}),
+			).rejects.toThrow(/must stay within/i);
 		});
 	});
 

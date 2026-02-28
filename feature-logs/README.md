@@ -222,3 +222,4 @@ Box drawing characters:
 | Date | Features |
 |------|----------|
 | [2026-02-13](./2026-02-13.md) | Terminal view modes (`/view`), `/help` + startup simplification, bash-mode gating (`terminal.enableBashMode`), interactive `!!` removal, flattened outline-based UI |
+| [2026-02-27 (Plan Mode)](./2026-02-27-plan-mode.md) | Work modes (`build`/`plan`), `/plan` + `Ctrl+Tab`, plan tools (`question`, `plan_create`, `implement`), RPC `set_work_mode`, ACP `/plan` wiring |

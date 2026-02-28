@@ -256,7 +256,7 @@ function parseSessionFile(filePath) {
     if (!header || typeof header.id !== "string") return null;
     const stats = statSync(filePath);
     const modifiedAtIso = new Date(lastMessageTime || stats.mtimeMs || Date.now()).toISOString();
-    const title = name || firstMessage || "New session";
+    const title = name || firstMessage || "New thread";
 
     return {
       id: String(header.id),
@@ -346,13 +346,13 @@ function saveSettings(next) {
 
 function emptyData() {
   return {
+    projects: [],
     threads: [],
-    sessions: [],
-    threadPrefs: {},
+    projectPrefs: {},
     appState: {
+      activeProjectId: null,
       activeThreadId: null,
-      activeSessionId: null,
-      recentThreadIds: []
+      recentProjectIds: []
     }
   };
 }
@@ -376,22 +376,115 @@ function saveData(next) {
   return next;
 }
 
-function threadIdForPath(path) {
+function projectIdForPath(path) {
   return createHash("sha1").update(path).digest("hex").slice(0, 12);
 }
 
-function touchThreadRecents(data, threadId) {
-  const without = data.appState.recentThreadIds.filter((id) => id !== threadId);
-  data.appState.recentThreadIds = [threadId, ...without].slice(0, 200);
+function touchProjectRecents(data, projectId) {
+  const without = data.appState.recentProjectIds.filter((id) => id !== projectId);
+  data.appState.recentProjectIds = [projectId, ...without].slice(0, 200);
 }
 
-function upsertSessionMeta(data, sessionMeta) {
-  const idx = data.sessions.findIndex((s) => s.id === sessionMeta.id);
+function upsertThreadMeta(data, threadMeta) {
+  const idx = data.threads.findIndex((s) => s.id === threadMeta.id);
   if (idx >= 0) {
-    data.sessions[idx] = { ...data.sessions[idx], ...sessionMeta, updatedAt: nowIso() };
+    data.threads[idx] = { ...data.threads[idx], ...threadMeta, updatedAt: nowIso() };
   } else {
-    data.sessions.push({ ...sessionMeta, createdAt: nowIso(), updatedAt: nowIso() });
+    data.threads.push({ ...threadMeta, createdAt: nowIso(), updatedAt: nowIso() });
   }
+}
+
+function normalizeCommand(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const name = String(entry.name || "").trim();
+  if (!name) return null;
+  return {
+    name,
+    description: typeof entry.description === "string" ? entry.description : undefined
+  };
+}
+
+function normalizeMode(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const id = String(entry.id || "").trim();
+  if (!id) return null;
+  return {
+    id,
+    name: String(entry.name || id),
+    description: typeof entry.description === "string" ? entry.description : null
+  };
+}
+
+function normalizeModel(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const modelId = String(entry.modelId || "").trim();
+  if (!modelId) return null;
+  return {
+    modelId,
+    name: String(entry.name || modelId),
+    description: typeof entry.description === "string" ? entry.description : null
+  };
+}
+
+function normalizeProjectMeta(meta) {
+  if (!meta || typeof meta !== "object") return null;
+  const availableCommands = Array.isArray(meta.availableCommands)
+    ? meta.availableCommands.map(normalizeCommand).filter(Boolean)
+    : [];
+  const modes = Array.isArray(meta.modes) ? meta.modes.map(normalizeMode).filter(Boolean) : [];
+  const models = Array.isArray(meta.models) ? meta.models.map(normalizeModel).filter(Boolean) : [];
+  return {
+    availableCommands,
+    modes,
+    currentModeId: String(meta.currentModeId || ""),
+    models,
+    currentModelId: String(meta.currentModelId || "")
+  };
+}
+
+function extractProjectMetaFromSessionResult(result) {
+  if (!result || typeof result !== "object") return null;
+  return normalizeProjectMeta({
+    availableCommands: [],
+    modes: Array.isArray(result?.modes?.availableModes) ? result.modes.availableModes : [],
+    currentModeId: String(result?.modes?.currentModeId || ""),
+    models: Array.isArray(result?.models?.availableModels) ? result.models.availableModels : [],
+    currentModelId: String(result?.models?.currentModelId || "")
+  });
+}
+
+function mergeProjectMeta(existingMeta, nextMeta) {
+  const existing = normalizeProjectMeta(existingMeta) || {
+    availableCommands: [],
+    modes: [],
+    currentModeId: "",
+    models: [],
+    currentModelId: ""
+  };
+  const next = normalizeProjectMeta(nextMeta) || {
+    availableCommands: [],
+    modes: [],
+    currentModeId: "",
+    models: [],
+    currentModelId: ""
+  };
+  return {
+    availableCommands: next.availableCommands.length > 0 ? next.availableCommands : existing.availableCommands,
+    modes: next.modes.length > 0 ? next.modes : existing.modes,
+    currentModeId: next.currentModeId || existing.currentModeId,
+    models: next.models.length > 0 ? next.models : existing.models,
+    currentModelId: next.currentModelId || existing.currentModelId
+  };
+}
+
+function upsertProjectMeta(data, projectId, meta) {
+  if (!projectId) return false;
+  const merged = mergeProjectMeta(data.projectPrefs?.[projectId]?.sessionMeta, meta);
+  data.projectPrefs[projectId] = {
+    ...(data.projectPrefs[projectId] || {}),
+    sessionMeta: merged
+  };
+  return true;
 }
 
 const rpc = new JsonRpcStdioClient();
@@ -462,13 +555,19 @@ function createWindow() {
   }
 }
 
+ipcMain.handle("acp:status", async () => {
+  if (rpc.isRunning() && acpInitialized) return { status: "connected" };
+  if (rpc.isRunning() && !acpInitialized) return { status: "starting" };
+  return { status: "disconnected" };
+});
+
 ipcMain.handle("acp:get-settings", async () => loadSettings());
 ipcMain.handle("acp:save-settings", async (_event, nextSettings) => saveSettings(nextSettings));
 ipcMain.handle("system:pick-folder", async () => {
   const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow || null;
   const result = await dialog.showOpenDialog(focusedWindow, {
     properties: ["openDirectory"],
-    title: "Select Thread Folder"
+    title: "Select Project Folder"
   });
   if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
     return { path: null };
@@ -476,28 +575,28 @@ ipcMain.handle("system:pick-folder", async () => {
   return { path: String(result.filePaths[0]) };
 });
 
-ipcMain.handle("threads:list", async () => {
+ipcMain.handle("projects:list", async () => {
   const data = loadData();
-  const order = new Map(data.appState.recentThreadIds.map((id, index) => [id, index]));
-  const threads = [...data.threads].sort((a, b) => {
+  const order = new Map(data.appState.recentProjectIds.map((id, index) => [id, index]));
+  const projects = [...data.projects].sort((a, b) => {
     const ai = order.has(a.id) ? order.get(a.id) : Number.MAX_SAFE_INTEGER;
     const bi = order.has(b.id) ? order.get(b.id) : Number.MAX_SAFE_INTEGER;
     if (ai !== bi) return ai - bi;
     return String(a.name || "").localeCompare(String(b.name || ""));
   });
-  return { threads, activeThreadId: data.appState.activeThreadId };
+  return { projects, activeProjectId: data.appState.activeProjectId };
 });
 
-ipcMain.handle("threads:create", async (_event, params) => {
+ipcMain.handle("projects:create", async (_event, params) => {
   const data = loadData();
   const path = String(params?.path || "").trim();
-  if (!path) throw new Error("Thread path is required");
-  const id = threadIdForPath(path);
-  const existing = data.threads.find((t) => t.id === id);
+  if (!path) throw new Error("Project path is required");
+  const id = projectIdForPath(path);
+  const existing = data.projects.find((t) => t.id === id);
   const now = nowIso();
 
   if (!existing) {
-    data.threads.push({
+    data.projects.push({
       id,
       name: String(params?.name || basename(path) || path),
       path,
@@ -511,53 +610,53 @@ ipcMain.handle("threads:create", async (_event, params) => {
     existing.lastOpenedAt = now;
   }
 
-  data.appState.activeThreadId = id;
-  touchThreadRecents(data, id);
+  data.appState.activeProjectId = id;
+  touchProjectRecents(data, id);
   saveData(data);
-  return { threadId: id };
+  return { projectId: id };
 });
 
-ipcMain.handle("threads:select", async (_event, params) => {
+ipcMain.handle("projects:select", async (_event, params) => {
   const data = loadData();
-  const threadId = String(params?.threadId || "");
-  const thread = data.threads.find((t) => t.id === threadId);
-  if (!thread) throw new Error(`Unknown thread: ${threadId}`);
+  const projectId = String(params?.projectId || "");
+  const project = data.projects.find((t) => t.id === projectId);
+  if (!project) throw new Error(`Unknown project: ${projectId}`);
 
-  thread.lastOpenedAt = nowIso();
-  thread.updatedAt = nowIso();
-  data.appState.activeThreadId = threadId;
-  touchThreadRecents(data, threadId);
+  project.lastOpenedAt = nowIso();
+  project.updatedAt = nowIso();
+  data.appState.activeProjectId = projectId;
+  touchProjectRecents(data, projectId);
   saveData(data);
 
-  return { thread };
+  return { project };
 });
 
-ipcMain.handle("threads:remove", async (_event, params) => {
+ipcMain.handle("projects:remove", async (_event, params) => {
   const data = loadData();
-  const threadId = String(params?.threadId || "");
-  data.threads = data.threads.filter((t) => t.id !== threadId);
-  data.sessions = data.sessions.filter((s) => s.threadId !== threadId);
-  delete data.threadPrefs[threadId];
-  data.appState.recentThreadIds = data.appState.recentThreadIds.filter((id) => id !== threadId);
-  if (data.appState.activeThreadId === threadId) data.appState.activeThreadId = null;
-  if (data.appState.activeSessionId && !data.sessions.some((s) => s.id === data.appState.activeSessionId)) {
-    data.appState.activeSessionId = null;
+  const projectId = String(params?.projectId || "");
+  data.projects = data.projects.filter((t) => t.id !== projectId);
+  data.threads = data.threads.filter((s) => s.projectId !== projectId);
+  delete data.projectPrefs[projectId];
+  data.appState.recentProjectIds = data.appState.recentProjectIds.filter((id) => id !== projectId);
+  if (data.appState.activeProjectId === projectId) data.appState.activeProjectId = null;
+  if (data.appState.activeThreadId && !data.threads.some((s) => s.id === data.appState.activeThreadId)) {
+    data.appState.activeThreadId = null;
   }
   saveData(data);
   return { ok: true };
 });
 
-ipcMain.handle("sessions:list", async (_event, params) => {
+ipcMain.handle("threads:list", async (_event, params) => {
   const data = loadData();
-  const threadId = String(params?.threadId || "");
-  const thread = data.threads.find((t) => t.id === threadId);
-  const fromCli = thread ? listCliSessionsForCwd(thread.path) : [];
+  const projectId = String(params?.projectId || "");
+  const project = data.projects.find((t) => t.id === projectId);
+  const fromCli = project ? listCliSessionsForCwd(project.path) : [];
   const fromCliIds = new Set(fromCli.map((s) => s.id));
-  const fromMeta = data.sessions.filter((s) => s.threadId === threadId && !fromCliIds.has(s.id));
-  const sessions = [
+  const fromMeta = data.threads.filter((s) => s.projectId === projectId && !fromCliIds.has(s.id));
+  const threads = [
     ...fromCli.map((s) => ({
       id: s.id,
-      threadId,
+      projectId,
       title: s.title,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -565,33 +664,51 @@ ipcMain.handle("sessions:list", async (_event, params) => {
     })),
     ...fromMeta
   ].sort((a, b) => String(b.lastOpenedAt || b.updatedAt || "").localeCompare(String(a.lastOpenedAt || a.updatedAt || "")));
-  return { sessions, activeSessionId: data.appState.activeSessionId };
+  return { threads, activeThreadId: data.appState.activeThreadId };
 });
 
-ipcMain.handle("sessions:rename", async (_event, params) => {
+ipcMain.handle("threads:rename", async (_event, params) => {
   const data = loadData();
-  const sessionId = String(params?.sessionId || "");
+  const threadId = String(params?.threadId || "");
   const title = String(params?.title || "").trim();
-  const s = data.sessions.find((x) => x.id === sessionId);
-  if (!s) throw new Error(`Unknown session: ${sessionId}`);
+  const s = data.threads.find((x) => x.id === threadId);
+  if (!s) throw new Error(`Unknown thread: ${threadId}`);
   s.title = title || s.title;
   s.updatedAt = nowIso();
   saveData(data);
   return { ok: true };
 });
 
-ipcMain.handle("prefs:get-thread", async (_event, params) => {
+ipcMain.handle("prefs:get-project", async (_event, params) => {
   const data = loadData();
-  const threadId = String(params?.threadId || "");
-  return data.threadPrefs[threadId] || {};
+  const projectId = String(params?.projectId || "");
+  return data.projectPrefs[projectId] || {};
 });
 
-ipcMain.handle("prefs:set-thread-model", async (_event, params) => {
+ipcMain.handle("prefs:set-project-model", async (_event, params) => {
   const data = loadData();
-  const threadId = String(params?.threadId || "");
+  const projectId = String(params?.projectId || "");
   const modelId = String(params?.modelId || "");
-  data.threadPrefs[threadId] = { ...(data.threadPrefs[threadId] || {}), preferredModelId: modelId };
+  data.projectPrefs[projectId] = { ...(data.projectPrefs[projectId] || {}), preferredModelId: modelId };
   saveData(data);
+  return { ok: true };
+});
+
+ipcMain.handle("prefs:get-project-meta", async (_event, params) => {
+  const data = loadData();
+  const projectId = String(params?.projectId || "");
+  const meta = data.projectPrefs?.[projectId]?.sessionMeta;
+  return normalizeProjectMeta(meta);
+});
+
+ipcMain.handle("prefs:set-project-meta", async (_event, params) => {
+  const data = loadData();
+  const projectId = String(params?.projectId || "");
+  const meta = normalizeProjectMeta(params?.meta);
+  if (projectId && meta) {
+    upsertProjectMeta(data, projectId, meta);
+    saveData(data);
+  }
   return { ok: true };
 });
 
@@ -615,26 +732,28 @@ ipcMain.handle("acp:initialize", async (_event, params) => {
 
 ipcMain.handle("acp:new-session", async (_event, params) => {
   await ensureAcpStarted();
-  const threadId = String(params?.threadId || "");
+  const projectId = String(params?.projectId || "");
   const payload = { cwd: params?.cwd, mcpServers: params?.mcpServers || [] };
   const result = await rpc.request("session/new", payload);
 
-  if (threadId && result?.sessionId) {
+  if (projectId && result?.sessionId) {
     const data = loadData();
-    const thread = data.threads.find((t) => t.id === threadId);
-    if (thread) {
+    const project = data.projects.find((t) => t.id === projectId);
+    if (project) {
       const sid = String(result.sessionId);
-      upsertSessionMeta(data, {
+      upsertThreadMeta(data, {
         id: sid,
-        threadId,
-        title: "New session",
+        projectId,
+        title: "New thread",
         lastOpenedAt: nowIso()
       });
-      data.appState.activeThreadId = threadId;
-      data.appState.activeSessionId = sid;
-      touchThreadRecents(data, threadId);
-      thread.updatedAt = nowIso();
-      thread.lastOpenedAt = nowIso();
+      data.appState.activeProjectId = projectId;
+      data.appState.activeThreadId = sid;
+      touchProjectRecents(data, projectId);
+      project.updatedAt = nowIso();
+      project.lastOpenedAt = nowIso();
+      const projectMeta = extractProjectMetaFromSessionResult(result);
+      if (projectMeta) upsertProjectMeta(data, projectId, projectMeta);
       saveData(data);
     }
   }
@@ -644,7 +763,7 @@ ipcMain.handle("acp:new-session", async (_event, params) => {
 
 ipcMain.handle("acp:load-session", async (_event, params) => {
   await ensureAcpStarted();
-  const threadId = String(params?.threadId || "");
+  const projectId = String(params?.projectId || "");
   const sessionId = String(params?.sessionId || "");
   const cwd = String(params?.cwd || "");
   if (sessionId && cwd) {
@@ -661,21 +780,23 @@ ipcMain.handle("acp:load-session", async (_event, params) => {
   const payload = { sessionId: params?.sessionId, cwd: params?.cwd, mcpServers: params?.mcpServers || [] };
   const result = await rpc.request("session/load", payload);
 
-  if (threadId && params?.sessionId) {
+  if (projectId && params?.sessionId) {
     const data = loadData();
     const sid = String(params.sessionId);
-    const thread = data.threads.find((t) => t.id === threadId);
-    if (thread) {
-      upsertSessionMeta(data, {
+    const project = data.projects.find((t) => t.id === projectId);
+    if (project) {
+      upsertThreadMeta(data, {
         id: sid,
-        threadId,
+        projectId,
         lastOpenedAt: nowIso()
       });
-      data.appState.activeThreadId = threadId;
-      data.appState.activeSessionId = sid;
-      touchThreadRecents(data, threadId);
-      thread.updatedAt = nowIso();
-      thread.lastOpenedAt = nowIso();
+      data.appState.activeProjectId = projectId;
+      data.appState.activeThreadId = sid;
+      touchProjectRecents(data, projectId);
+      project.updatedAt = nowIso();
+      project.lastOpenedAt = nowIso();
+      const projectMeta = extractProjectMetaFromSessionResult(result);
+      if (projectMeta) upsertProjectMeta(data, projectId, projectMeta);
       saveData(data);
     }
   }
@@ -690,14 +811,14 @@ ipcMain.handle("acp:prompt", async (_event, params) => {
   const sessionId = String(params?.sessionId || "");
   if (sessionId) {
     const data = loadData();
-    const s = data.sessions.find((x) => x.id === sessionId);
+    const s = data.threads.find((x) => x.id === sessionId);
     if (s) {
       s.lastOpenedAt = nowIso();
       s.updatedAt = nowIso();
-      if ((!s.title || s.title === "New session") && Array.isArray(params?.prompt) && params.prompt[0]?.text) {
+      if ((!s.title || s.title === "New thread") && Array.isArray(params?.prompt) && params.prompt[0]?.text) {
         s.title = String(params.prompt[0].text).trim().slice(0, 60) || s.title;
       }
-      data.appState.activeSessionId = sessionId;
+      data.appState.activeThreadId = sessionId;
       saveData(data);
     }
   }
@@ -710,9 +831,35 @@ ipcMain.handle("acp:cancel", async (_event, params) => {
   return { ok: true };
 });
 
+ipcMain.handle("acp:delete-session", async (_event, params) => {
+  await ensureAcpStarted();
+  const sessionId = String(params?.sessionId || "");
+  if (!sessionId) return { ok: true };
+
+  try {
+    await rpc.request("session/delete", { sessionId });
+  } catch {
+    // Agent may not support session/delete — clean up locally only.
+  }
+
+  const data = loadData();
+  data.threads = data.threads.filter((s) => s.id !== sessionId);
+  if (data.appState.activeThreadId === sessionId) {
+    data.appState.activeThreadId = null;
+  }
+  saveData(data);
+
+  return { ok: true };
+});
+
 ipcMain.handle("acp:set-mode", async (_event, params) => {
   await ensureAcpStarted();
   return rpc.request("session/set_mode", params);
+});
+
+ipcMain.handle("acp:set-model", async (_event, params) => {
+  await ensureAcpStarted();
+  return rpc.request("session/set_model", params);
 });
 
 ipcMain.handle("acp:respond-permission", async (_event, requestId, outcome) => {

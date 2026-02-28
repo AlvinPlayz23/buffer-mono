@@ -120,7 +120,8 @@ export type AgentSessionEvent =
 			errorMessage?: string;
 	  }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string };
+	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	| { type: "work_mode_change"; mode: WorkMode };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -196,6 +197,8 @@ export interface SessionStats {
 	cost: number;
 }
 
+export type WorkMode = "build" | "plan";
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -205,6 +208,8 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 
 /** Thinking levels including xhigh (for supported models) */
 const THINKING_LEVELS_WITH_XHIGH: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+const PLAN_MODE_TOOL_NAMES = ["read", "grep", "find", "ls", "question", "plan_create", "implement"];
+const DEFAULT_BUILD_MODE_TOOL_NAMES = ["read", "bash", "edit", "write"];
 
 // ============================================================================
 // AgentSession Class
@@ -270,6 +275,9 @@ export class AgentSession {
 
 	// Base system prompt (without extension appends) - used to apply fresh appends each turn
 	private _baseSystemPrompt = "";
+	private _workMode: WorkMode = "build";
+	private _buildModeToolSnapshot: string[] | undefined = undefined;
+	private _pendingAutoImplementMessage: string | undefined = undefined;
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -381,7 +389,15 @@ export class AgentSession {
 		}
 
 		// Check auto-retry and auto-compaction after agent completes
-		if (event.type === "agent_end" && this._lastAssistantMessage) {
+		if (event.type === "agent_end") {
+			// If plan mode requested immediate implementation, run that now in build mode.
+			// This prevents the implementation prompt from being queued as a follow-up.
+			if (await this._runPendingAutoImplementIfAny()) {
+				this._lastAssistantMessage = undefined;
+				return;
+			}
+
+			if (!this._lastAssistantMessage) return;
 			const msg = this._lastAssistantMessage;
 			this._lastAssistantMessage = undefined;
 
@@ -574,6 +590,11 @@ export class AgentSession {
 		return this.agent.state.systemPrompt;
 	}
 
+	/** Current work mode */
+	get workMode(): WorkMode {
+		return this._workMode;
+	}
+
 	/** Current retry attempt (0 if not retrying) */
 	get retryAttempt(): number {
 		return this._retryAttempt;
@@ -687,7 +708,54 @@ export class AgentSession {
 			customPrompt: loaderSystemPrompt,
 			appendSystemPrompt,
 			selectedTools: validToolNames,
+			workMode: this._workMode,
 		});
+	}
+
+	setWorkMode(mode: WorkMode): void {
+		if (mode === this._workMode) return;
+
+		if (mode === "plan") {
+			this._buildModeToolSnapshot = this.getActiveToolNames();
+			this._workMode = "plan";
+			this.setActiveToolsByName(PLAN_MODE_TOOL_NAMES);
+			this._emit({ type: "work_mode_change", mode: this._workMode });
+			return;
+		}
+
+		this._workMode = "build";
+		const restoreNames =
+			this._buildModeToolSnapshot && this._buildModeToolSnapshot.length > 0
+				? this._buildModeToolSnapshot
+				: DEFAULT_BUILD_MODE_TOOL_NAMES;
+		this._buildModeToolSnapshot = undefined;
+		this.setActiveToolsByName(restoreNames);
+		this._emit({ type: "work_mode_change", mode: this._workMode });
+	}
+
+	private _scheduleAutoImplementPrompt(message: string): void {
+		this._pendingAutoImplementMessage = message;
+		if (this.isStreaming) {
+			// End current stream so the implementation prompt can run immediately in build mode.
+			void this.abort();
+		}
+	}
+
+	private async _runPendingAutoImplementIfAny(): Promise<boolean> {
+		if (!this._pendingAutoImplementMessage || this.isStreaming) return false;
+		const pendingMessage = this._pendingAutoImplementMessage;
+		this._pendingAutoImplementMessage = undefined;
+		await this.prompt(pendingMessage, {
+			expandPromptTemplates: false,
+			source: "extension",
+		});
+		return true;
+	}
+
+	toggleWorkMode(): WorkMode {
+		const next: WorkMode = this._workMode === "build" ? "plan" : "build";
+		this.setWorkMode(next);
+		return this._workMode;
 	}
 
 	// =========================================================================
@@ -1970,6 +2038,59 @@ export class AgentSession {
 			: createAllTools(this._cwd, {
 					read: { autoResizeImages },
 					bash: { commandPrefix: shellCommandPrefix },
+					implement: {
+						operations: {
+							confirmImplement: async () => {
+								const ui = this._extensionUIContext;
+								if (!ui) {
+									throw new Error("Implement tool requires an interactive UI context.");
+								}
+								const implementNow = "Implement this plan now";
+								const continuePlanning = "Keep planning for now";
+								const selected = await ui.select("Ready to implement this plan?", [
+									implementNow,
+									continuePlanning,
+								]);
+								if (!selected || selected === continuePlanning) {
+									return false;
+								}
+
+								this.setWorkMode("build");
+								this._scheduleAutoImplementPrompt("Implement this Plan");
+								return true;
+							},
+						},
+					},
+					question: {
+						operations: {
+							askQuestion: async (question, options, allowCustom) => {
+								const ui = this._extensionUIContext;
+								if (!ui) {
+									throw new Error("Question tool requires an interactive UI context.");
+								}
+								const choices = [...options];
+								if (allowCustom) {
+									choices.push("Own answer");
+								}
+								const selected = await ui.select(question, choices);
+								if (!selected) {
+									throw new Error("Question was cancelled by user.");
+								}
+								const selectedIndex = options.findIndex((o) => o === selected);
+								if (selectedIndex >= 0) {
+									return { answer: selected, selectedIndex, isCustom: false };
+								}
+								if (!allowCustom) {
+									throw new Error("Custom answers are disabled for this question.");
+								}
+								const custom = await ui.input(question, "Type your answer");
+								if (!custom?.trim()) {
+									throw new Error("No answer provided.");
+								}
+								return { answer: custom.trim(), isCustom: true };
+							},
+						},
+					},
 				});
 
 		this._baseToolRegistry = new Map(Object.entries(baseTools).map(([name, tool]) => [name, tool as AgentTool]));
@@ -2017,9 +2138,15 @@ export class AgentSession {
 
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: ["read", "bash", "edit", "write"];
+			: DEFAULT_BUILD_MODE_TOOL_NAMES;
 		const baseActiveToolNames = options.activeToolNames ?? defaultActiveToolNames;
 		const activeToolNameSet = new Set<string>(baseActiveToolNames);
+		if (this._workMode === "plan") {
+			activeToolNameSet.clear();
+			for (const name of PLAN_MODE_TOOL_NAMES) {
+				activeToolNameSet.add(name);
+			}
+		}
 		if (options.includeAllExtensionTools) {
 			for (const tool of wrappedExtensionTools as AgentTool[]) {
 				activeToolNameSet.add(tool.name);

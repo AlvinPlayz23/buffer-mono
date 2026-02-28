@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
 import { getDesktopApi } from "./lib/api";
 import { initialState, reduceEvent, type AppState } from "./lib/state";
 import type {
@@ -6,13 +7,15 @@ import type {
   DesktopEvent,
   PermissionOption,
   PermissionOutcome,
-  SessionItem,
-  ThreadItem
+  ThreadItem,
+  ProjectMeta,
+  ProjectItem
 } from "./types/acp";
 
 const api = getDesktopApi();
 
 type RememberMap = Record<string, string>;
+type PreWarmedThread = { projectId: string; sessionId: string; used: boolean };
 
 const THEMES = [
   { id: "midnight", name: "Midnight", icon: "🌙" },
@@ -21,7 +24,7 @@ const THEMES = [
   { id: "arctic", name: "Arctic", icon: "❄" }
 ] as const;
 
-function formatThreadName(path: string): string {
+function formatProjectName(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const parts = normalized.split("/").filter(Boolean);
   return parts[parts.length - 1] || path;
@@ -36,14 +39,14 @@ export function App() {
     autoStartAcp: true
   });
 
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [threads, setThreads] = useState<ThreadItem[]>([]);
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string>("");
-  const [activeSessionId, setActiveSessionId] = useState("");
+  const [activeProjectId, setActiveProjectId] = useState<string>("");
+  const [activeThreadId, setActiveThreadId] = useState("");
 
   const [promptInput, setPromptInput] = useState("");
   const [rememberChoice, setRememberChoice] = useState(false);
-  const [sessionRemember, setSessionRemember] = useState<RememberMap>({});
+  const [threadRemember, setThreadRemember] = useState<RememberMap>({});
   const [selectedModelId, setSelectedModelId] = useState("");
   const [, setInitInfo] = useState<{ agentName?: string; protocolVersion?: number }>({});
   const [acpStatus, setAcpStatus] = useState<"starting" | "connected" | "disconnected" | "error">("disconnected");
@@ -59,8 +62,12 @@ export function App() {
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const sessionRememberRef = useRef(sessionRemember);
-  sessionRememberRef.current = sessionRemember;
+  const threadRememberRef = useRef(threadRemember);
+  threadRememberRef.current = threadRemember;
+  const lastPersistedMetaRef = useRef<string>("");
+  const activeProjectIdRef = useRef(activeProjectId);
+  activeProjectIdRef.current = activeProjectId;
+  const preWarmedThreadRef = useRef<PreWarmedThread | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -70,7 +77,7 @@ export function App() {
     [toolCalls]
   );
   const recentToolCalls = useMemo(() => toolCalls.slice(-6).reverse(), [toolCalls]);
-  const canSend = Boolean(promptInput.trim()) && !isSending && !busy && !!activeThreadId && acpStatus === "connected";
+  const canSend = Boolean(promptInput.trim()) && !isSending && !busy && !!activeProjectId && acpStatus === "connected";
 
   const filteredSlashCommands = useMemo(() => {
     if (!showSlashMenu) return [];
@@ -100,11 +107,11 @@ export function App() {
     textareaRef.current?.focus();
   }
 
-  function resetConversationView(newSessionId = "") {
-    setActiveSessionId(newSessionId);
+  function resetConversationView(newThreadId = "") {
+    setActiveThreadId(newThreadId);
     setState((prev) => ({
       ...prev,
-      sessionId: newSessionId,
+      sessionId: newThreadId,
       messages: [],
       toolCalls: {},
       plan: [],
@@ -117,89 +124,146 @@ export function App() {
     }));
   }
 
-  async function refreshThreads() {
-    const result = await api.listThreads();
+  async function refreshProjects() {
+    const result = await api.listProjects();
+    setProjects(result.projects);
+    return result;
+  }
+
+  async function refreshThreads(projectId: string) {
+    const result = await api.listThreads(projectId);
     setThreads(result.threads);
     return result;
   }
 
-  async function refreshSessions(threadId: string) {
-    const result = await api.listSessions(threadId);
-    setSessions(result.sessions);
-    return result;
+  function applySessionMetadata(result: any, sessionId = "") {
+    const modes = Array.isArray(result?.modes?.availableModes) ? result.modes.availableModes : [];
+    const currentModeId = String(result?.modes?.currentModeId || "");
+    const models = Array.isArray(result?.models?.availableModels) ? result.models.availableModels : [];
+    const currentModelId = String(result?.models?.currentModelId || "");
+    setState((prev) => ({
+      ...prev,
+      sessionId: sessionId || prev.sessionId,
+      modes,
+      currentModeId,
+      models,
+      currentModelId
+    }));
+    if (currentModelId) setSelectedModelId(currentModelId);
   }
 
-  async function applyThreadModelPreference(threadId: string, sessionId: string) {
-    const pref = await api.getThreadPrefs(threadId);
+  function applyProjectMetadata(meta: ProjectMeta | null) {
+    if (!meta) return;
+    setState((prev) => ({
+      ...prev,
+      availableCommands: Array.isArray(meta.availableCommands) ? meta.availableCommands : [],
+      modes: Array.isArray(meta.modes) ? meta.modes : [],
+      currentModeId: String(meta.currentModeId || ""),
+      models: Array.isArray(meta.models) ? meta.models : [],
+      currentModelId: String(meta.currentModelId || "")
+    }));
+    if (meta.currentModelId) setSelectedModelId(meta.currentModelId);
+  }
+
+  function getUnusedPreWarmedThread(projectId: string): PreWarmedThread | null {
+    const preWarmed = preWarmedThreadRef.current;
+    if (!preWarmed) return null;
+    if (preWarmed.used) return null;
+    if (preWarmed.projectId !== projectId) return null;
+    return preWarmed;
+  }
+
+  async function cleanupUnusedPreWarmedThread(keepProjectId = ""): Promise<void> {
+    const preWarmed = preWarmedThreadRef.current;
+    if (!preWarmed || preWarmed.used) return;
+    if (keepProjectId && preWarmed.projectId === keepProjectId) return;
+    preWarmedThreadRef.current = null;
+    try {
+      await api.deleteSession({ sessionId: preWarmed.sessionId });
+      if (activeProjectIdRef.current === preWarmed.projectId) {
+        await refreshThreads(preWarmed.projectId);
+      }
+    } catch {
+      // Best-effort cleanup only.
+    }
+  }
+
+  async function preWarmProjectThread(project: ProjectItem): Promise<void> {
+    if (acpStatus !== "connected") return;
+    if (activeThreadId) return;
+    if (getUnusedPreWarmedThread(project.id)) return;
+    try {
+      const result = await api.newSession({ projectId: project.id, cwd: project.path, mcpServers: [] });
+      if (activeProjectIdRef.current !== project.id) return;
+      const sid = String(result?.sessionId || "");
+      if (!sid) return;
+
+      preWarmedThreadRef.current = { projectId: project.id, sessionId: sid, used: false };
+      applySessionMetadata(result, sid);
+      await refreshThreads(project.id);
+    } catch {
+      // Non-critical: fallback is creating a session on first prompt.
+    }
+  }
+
+  async function applyProjectModelPreference(projectId: string, sessionId: string) {
+    const pref = await api.getProjectPrefs(projectId);
     if (!pref.preferredModelId) return;
     setSelectedModelId(pref.preferredModelId);
 
     if (sessionId) {
-      await api.prompt({
-        sessionId,
-        prompt: [{ type: "text", text: `/model ${pref.preferredModelId}` }]
-      });
+      await api.setModel({ sessionId, modelId: pref.preferredModelId });
     }
   }
 
-  async function createSessionForThread(thread: ThreadItem): Promise<string> {
-    const result = await api.newSession({ threadId: thread.id, cwd: thread.path, mcpServers: [] });
+  async function createThreadForProject(project: ProjectItem): Promise<string> {
+    const result = await api.newSession({ projectId: project.id, cwd: project.path, mcpServers: [] });
     const sid = String(result?.sessionId || "");
     resetConversationView(sid);
+    applySessionMetadata(result, sid);
 
-    const modes = Array.isArray(result?.modes?.availableModes) ? result.modes.availableModes : [];
-    const currentModeId = String(result?.modes?.currentModeId || "");
-    const models = Array.isArray(result?.models?.availableModels) ? result.models.availableModels : [];
-    const currentModelId = String(result?.models?.currentModelId || "");
-    setState((prev) => ({ ...prev, modes, currentModeId, models, currentModelId }));
-    if (currentModelId) setSelectedModelId(currentModelId);
-
-    await applyThreadModelPreference(thread.id, sid);
-    await refreshSessions(thread.id);
+    await applyProjectModelPreference(project.id, sid);
+    await refreshThreads(project.id);
     return sid;
   }
 
-  async function loadSessionForThread(thread: ThreadItem, sessionId: string): Promise<void> {
+  async function loadThreadForProject(project: ProjectItem, sessionId: string): Promise<void> {
+    await cleanupUnusedPreWarmedThread("");
     resetConversationView(sessionId);
-    const result = await api.loadSession({ threadId: thread.id, sessionId, cwd: thread.path, mcpServers: [] });
+    const result = await api.loadSession({ projectId: project.id, sessionId, cwd: project.path, mcpServers: [] });
+    applySessionMetadata(result, sessionId);
 
-    const modes = Array.isArray(result?.modes?.availableModes) ? result.modes.availableModes : [];
-    const currentModeId = String(result?.modes?.currentModeId || "");
-    const models = Array.isArray(result?.models?.availableModels) ? result.models.availableModels : [];
-    const currentModelId = String(result?.models?.currentModelId || "");
-    setState((prev) => ({ ...prev, modes, currentModeId, models, currentModelId }));
-    if (currentModelId) setSelectedModelId(currentModelId);
-
-    const pref = await api.getThreadPrefs(thread.id);
+    const pref = await api.getProjectPrefs(project.id);
     if (pref.preferredModelId) setSelectedModelId(pref.preferredModelId);
-    await refreshSessions(thread.id);
+    await refreshThreads(project.id);
   }
 
-  async function openThread(threadId: string) {
-    const selected = threads.find((t) => t.id === threadId);
+  async function openProject(projectId: string) {
+    const selected = projects.find((t) => t.id === projectId);
     if (!selected) return;
 
     setError("");
     setBusy(true);
     try {
-      await api.selectThread(threadId);
-      setActiveThreadId(threadId);
+      await cleanupUnusedPreWarmedThread(projectId);
+      await api.selectProject(projectId);
+      setActiveProjectId(projectId);
       setSettings((prev) => ({ ...prev, cwd: selected.path }));
       resetConversationView("");
-
-      const sessionResult = await refreshSessions(threadId);
-      const latest = sessionResult.sessions[0];
-      if (latest) {
-        await loadSessionForThread(selected, latest.id);
-      }
+      setSelectedModelId("");
+      await refreshThreads(projectId);
+      const [pref, projectMeta] = await Promise.all([api.getProjectPrefs(projectId), api.getProjectMeta(projectId)]);
+      applyProjectMetadata(projectMeta);
+      if (pref.preferredModelId) setSelectedModelId(pref.preferredModelId);
+      await preWarmProjectThread(selected);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to open thread");
+      setError(err instanceof Error ? err.message : "Failed to open project");
     } finally {
       setBusy(false);
     }
   }
 
-  async function createThread() {
+  async function createProject() {
     const picked = await api.pickFolder();
     const path = String(picked?.path || "").trim();
     if (!path) return;
@@ -207,11 +271,11 @@ export function App() {
     setError("");
     setBusy(true);
     try {
-      const created = await api.createThread({ path, name: formatThreadName(path) });
-      await refreshThreads();
-      await openThread(created.threadId);
+      const created = await api.createProject({ path, name: formatProjectName(path) });
+      await refreshProjects();
+      await openProject(created.projectId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create thread");
+      setError(err instanceof Error ? err.message : "Failed to create project");
     } finally {
       setBusy(false);
     }
@@ -251,18 +315,28 @@ export function App() {
 
   async function sendPrompt() {
     const text = promptInput.trim();
-    if (!text || !activeThreadId) return;
+    if (!text || !activeProjectId) return;
 
     setError("");
     setBusy(true);
     setIsSending(true);
     try {
-      let sessionId = activeSessionId;
-      const thread = threads.find((t) => t.id === activeThreadId);
-      if (!thread) throw new Error("No active thread selected");
+      let sessionId = activeThreadId;
+      const project = projects.find((t) => t.id === activeProjectId);
+      if (!project) throw new Error("No active project selected");
 
       if (!sessionId) {
-        sessionId = await createSessionForThread(thread);
+        const preWarmed = getUnusedPreWarmedThread(project.id);
+        if (preWarmed) {
+          preWarmed.used = true;
+          preWarmedThreadRef.current = preWarmed;
+          sessionId = preWarmed.sessionId;
+          setActiveThreadId(sessionId);
+          setState((prev) => ({ ...prev, sessionId }));
+          await refreshThreads(project.id);
+        } else {
+          sessionId = await createThreadForProject(project);
+        }
       }
 
       setState((prev) => ({
@@ -271,10 +345,10 @@ export function App() {
       }));
 
       await api.prompt({ sessionId, prompt: [{ type: "text", text }] });
-      if ((sessions.find((s) => s.id === sessionId)?.title || "") === "New session") {
-        await api.renameSession(sessionId, text.slice(0, 60));
+      if ((threads.find((s) => s.id === sessionId)?.title || "") === "New thread") {
+        await api.renameThread(sessionId, text.slice(0, 60));
       }
-      await refreshSessions(activeThreadId);
+      await refreshThreads(activeProjectId);
       setPromptInput("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Prompt failed");
@@ -285,10 +359,10 @@ export function App() {
   }
 
   async function changeMode(modeId: string) {
-    if (!activeSessionId || !modeId) return;
+    if (!activeThreadId || !modeId) return;
     setError("");
     try {
-      await api.setMode({ sessionId: activeSessionId, modeId });
+      await api.setMode({ sessionId: activeThreadId, modeId });
       setState((prev) => ({ ...prev, currentModeId: modeId }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set mode");
@@ -296,13 +370,13 @@ export function App() {
   }
 
   async function changeModel(modelId: string) {
-    if (!activeThreadId || !modelId) return;
+    if (!activeProjectId || !modelId) return;
     setError("");
     try {
-      await api.setThreadModelPref(activeThreadId, modelId);
+      await api.setProjectModelPref(activeProjectId, modelId);
       setSelectedModelId(modelId);
-      if (activeSessionId) {
-        await api.prompt({ sessionId: activeSessionId, prompt: [{ type: "text", text: `/model ${modelId}` }] });
+      if (activeThreadId) {
+        await api.setModel({ sessionId: activeThreadId, modelId });
         setState((prev) => ({ ...prev, currentModelId: modelId }));
       }
     } catch (err) {
@@ -326,7 +400,7 @@ export function App() {
       outcome = { outcome: "selected", optionId: option.optionId };
       const rememberKey = permissionRequest.toolKind;
       if (rememberChoice && typeof rememberKey === "string" && rememberKey.length > 0) {
-        setSessionRemember((prev) => ({ ...prev, [rememberKey]: option.optionId }));
+        setThreadRemember((prev) => ({ ...prev, [rememberKey]: option.optionId }));
       }
     }
 
@@ -347,109 +421,147 @@ export function App() {
   }, [state.messages, activeToolCalls]);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void (async () => {
-      const loadedSettings = await api.getSettings();
-      setSettings(loadedSettings);
-
-      const threadData = await refreshThreads();
-      if (threadData.activeThreadId && threadData.threads.some((t) => t.id === threadData.activeThreadId)) {
-        await openThread(threadData.activeThreadId);
+    const unlisten = api.onEvent((event: DesktopEvent) => {
+      if (event.type === "acp_status_update") {
+        setAcpStatus(event.status);
+        return;
       }
 
-      unlisten = api.onEvent((event: DesktopEvent) => {
-        if (event.type === "acp_status_update") {
-          setAcpStatus(event.status);
-          return;
-        }
+      if (event.type === "connected") {
+        setAcpStatus("connected");
+        return;
+      }
 
-        if (event.type === "connected") {
-          setAcpStatus("connected");
-          return;
-        }
+      if (event.type === "disconnected" || event.type === "stopped") {
+        setAcpStatus("disconnected");
+      }
 
-        if (event.type === "disconnected" || event.type === "stopped") {
-          setAcpStatus("disconnected");
-        }
+      if (event.type === "permission_request") {
+        const kind = event.params.toolCall?.kind || "other";
+        const rememberedOption = threadRememberRef.current[kind];
+        const available = event.params.options.find((option) => option.optionId === rememberedOption);
 
-        if (event.type === "permission_request") {
-          const kind = event.params.toolCall?.kind || "other";
-          const rememberedOption = sessionRememberRef.current[kind];
-          const available = event.params.options.find((option) => option.optionId === rememberedOption);
-
-          if (settingsRef.current.autoAllow) {
-            const firstAllow = event.params.options.find((option) => option.kind.startsWith("allow"));
-            if (firstAllow) {
-              void api.respondPermission(event.requestId, {
-                outcome: "selected",
-                optionId: firstAllow.optionId
-              });
-              return;
-            }
-          }
-
-          if (available) {
+        if (settingsRef.current.autoAllow) {
+          const firstAllow = event.params.options.find((option) => option.kind.startsWith("allow"));
+          if (firstAllow) {
             void api.respondPermission(event.requestId, {
               outcome: "selected",
-              optionId: available.optionId
+              optionId: firstAllow.optionId
             });
             return;
           }
         }
 
-        setState((prev) => reduceEvent(prev, event));
-      });
+        if (available) {
+          void api.respondPermission(event.requestId, {
+            outcome: "selected",
+            optionId: available.optionId
+          });
+          return;
+        }
+      }
+
+      if (event.type === "session_update") {
+        const preWarmed = preWarmedThreadRef.current;
+        if (preWarmed && !preWarmed.used && event.params.sessionId === preWarmed.sessionId) {
+          const sessionUpdate = String(event.params.update?.sessionUpdate || "");
+          const allowedDuringPreWarm = new Set([
+            "available_commands_update",
+            "current_mode_update",
+            "available_modes_update",
+            "models_update",
+            "current_model_update"
+          ]);
+          if (!allowedDuringPreWarm.has(sessionUpdate)) return;
+        }
+      }
+
+      setState((prev) => reduceEvent(prev, event));
+    });
+
+    void (async () => {
+      const loadedSettings = await api.getSettings();
+      setSettings(loadedSettings);
+
+      const currentStatus = await api.getAcpStatus();
+      setAcpStatus(currentStatus.status);
+
+      const threadData = await refreshProjects();
+      if (threadData.activeProjectId && threadData.projects.some((t) => t.id === threadData.activeProjectId)) {
+        await openProject(threadData.activeProjectId);
+      }
     })();
 
     return () => {
-      if (unlisten) unlisten();
+      unlisten();
     };
   }, []);
 
-  const activeThread = threads.find((t) => t.id === activeThreadId);
+  useEffect(() => {
+    return () => {
+      void cleanupUnusedPreWarmedThread("");
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const payload: Partial<ProjectMeta> = {
+      availableCommands: state.availableCommands,
+      modes: state.modes,
+      currentModeId: state.currentModeId,
+      models: state.models,
+      currentModelId: state.currentModelId
+    };
+    const key = JSON.stringify({ projectId: activeProjectId, payload });
+    if (key === lastPersistedMetaRef.current) return;
+    lastPersistedMetaRef.current = key;
+    void api.setProjectMeta(activeProjectId, payload);
+  }, [activeProjectId, state.availableCommands, state.modes, state.currentModeId, state.models, state.currentModelId]);
+
+  const activeProject = projects.find((t) => t.id === activeProjectId);
 
   return (
-    <div className="thread-layout">
-      <aside className="thread-sidebar">
+    <div className="project-layout">
+      <aside className="project-sidebar">
         <div className="sidebar-header">
           <span className="sidebar-brand">Buffer</span>
           <span className={`status-dot ${acpStatus}`} title={acpStatus} />
         </div>
-        <button className="btn btn-new-thread" onClick={createThread} disabled={busy}>
-          <span className="btn-icon">+</span> New thread
+        <button className="btn btn-new-project" onClick={createProject} disabled={busy}>
+          <span className="btn-icon">+</span> New project
         </button>
-        <div className="thread-sidebar-title">THREADS</div>
-        <ul className="thread-list">
-          {threads.map((thread) => (
-            <li key={thread.id}>
+        <div className="project-sidebar-title">PROJECTS</div>
+        <ul className="project-list">
+          {projects.map((project) => (
+            <li key={project.id}>
               <button
-                className={`thread-item ${thread.id === activeThreadId ? "active" : ""}`}
-                onClick={() => openThread(thread.id)}
+                className={`project-item ${project.id === activeProjectId ? "active" : ""}`}
+                onClick={() => openProject(project.id)}
               >
-                <span className="thread-folder">{thread.name}</span>
-                <span className="thread-path">{thread.path}</span>
+                <span className="project-folder">{project.name}</span>
+                <span className="project-path">{project.path}</span>
               </button>
-              {thread.id === activeThreadId && sessions.length > 0 && (
-                <ul className="session-list">
-                  {sessions.map((session) => (
-                    <li key={session.id}>
+              {project.id === activeProjectId && threads.length > 0 && (
+                <ul className="thread-list">
+                  {threads.map((thread) => (
+                    <li key={thread.id}>
                       <button
-                        className={`session-item ${session.id === activeSessionId ? "active" : ""}`}
+                        className={`thread-item ${thread.id === activeThreadId ? "active" : ""}`}
                         disabled={busy}
                         onClick={async () => {
-                          if (busy || session.id === activeSessionId) return;
+                          if (busy || thread.id === activeThreadId) return;
                           setBusy(true);
                           setError("");
                           try {
-                            await loadSessionForThread(thread, session.id);
+                            await loadThreadForProject(project, thread.id);
                           } catch (err) {
-                            setError(err instanceof Error ? err.message : "Failed to load session");
+                            setError(err instanceof Error ? err.message : "Failed to load thread");
                           } finally {
                             setBusy(false);
                           }
                         }}
                       >
-                        {session.title || "Untitled session"}
+                        {thread.title || "Untitled thread"}
                       </button>
                     </li>
                   ))}
@@ -463,8 +575,7 @@ export function App() {
       <main className="app-shell">
         <header className="chat-header">
           <div className="chat-title">
-            <h1>{activeThread?.name || "Buffer"}</h1>
-            <span className={`status-pill ${acpStatus}`}>{acpStatus}</span>
+            <h1>{activeProject?.name || "Buffer"}</h1>
           </div>
 
           <div className="chat-controls">
@@ -479,7 +590,7 @@ export function App() {
                 <div className="empty-logo">⚡</div>
               </div>
               <h2>What shall we build?</h2>
-              <h3>{activeThread?.name || "Select a thread to start"}</h3>
+              <h3>{activeProject?.name || "Select a project to start"}</h3>
               <div className="suggestion-grid">
                 {[
                   { text: "Create a classic snake game", icon: "🎮" },
@@ -490,7 +601,7 @@ export function App() {
                     key={idea.text}
                     className="suggestion-card"
                     onClick={() => setPromptInput(idea.text)}
-                    disabled={!activeThreadId || busy || isSending}
+                    disabled={!activeProjectId || busy || isSending}
                   >
                     <span className="suggestion-icon">{idea.icon}</span>
                     <span>{idea.text}</span>
@@ -521,10 +632,16 @@ export function App() {
 
           {state.messages.map((message, idx) => (
             <article key={`${message.role}-${idx}`} className={`chat-row ${message.role}`}>
-              <div className="chat-bubble">
-                <div className="chat-role">{message.role}</div>
-                <pre>{message.text}</pre>
-              </div>
+              {message.role === "user" ? (
+                <div className="chat-bubble">
+                  <pre>{message.text}</pre>
+                </div>
+              ) : (
+                <div className={`chat-flat ${message.role}`}>
+                  <div className="chat-role">{message.role}</div>
+                  <Markdown>{message.text}</Markdown>
+                </div>
+              )}
             </article>
           ))}
 
@@ -567,9 +684,9 @@ export function App() {
             )}
             <textarea
               ref={textareaRef}
-              placeholder={activeThreadId ? "Message Buffer… Type / for commands" : "Select a thread to start…"}
+              placeholder={activeProjectId ? "Message Buffer… Type / for commands" : "Select a project to start…"}
               value={promptInput}
-              disabled={isSending || !activeThreadId}
+              disabled={isSending || !activeProjectId}
               onChange={(e) => handlePromptChange(e.target.value)}
               onKeyDown={(e) => {
                 if (showSlashMenu && filteredSlashCommands.length > 0) {
@@ -642,7 +759,7 @@ export function App() {
               </div>
               <div className="composer-actions">
                 {isSending && (
-                  <button className="btn btn-sm" onClick={() => activeSessionId && api.cancel({ sessionId: activeSessionId })}>
+                  <button className="btn btn-sm" onClick={() => activeThreadId && api.cancel({ sessionId: activeThreadId })}>
                     Stop
                   </button>
                 )}
@@ -661,126 +778,137 @@ export function App() {
         </footer>
 
         {showSettings && (
-          <div className="drawer-overlay" onClick={() => setShowSettings(false)}>
-            <aside className="settings-drawer" onClick={(e) => e.stopPropagation()}>
-              <header>
+          <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+            <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+              <header className="settings-header">
                 <h2>Settings</h2>
-                <button className="btn btn-sm" onClick={() => setShowSettings(false)}>✕</button>
+                <button className="btn-icon-only" onClick={() => setShowSettings(false)}>✕</button>
               </header>
 
-              <section>
-                <h3>Theme</h3>
-                <div className="theme-picker">
-                  {THEMES.map((t) => (
-                    <button
-                      key={t.id}
-                      className={`theme-chip ${theme === t.id ? "active" : ""}`}
-                      onClick={() => setTheme(t.id)}
-                    >
-                      <span>{t.icon}</span>
-                      <span>{t.name}</span>
-                    </button>
-                  ))}
+              <div className="settings-body">
+                <div className="settings-grid">
+                  <section className="settings-section">
+                    <h3>Theme</h3>
+                    <div className="theme-picker">
+                      {THEMES.map((t) => (
+                        <button
+                          key={t.id}
+                          className={`theme-chip ${theme === t.id ? "active" : ""}`}
+                          onClick={() => setTheme(t.id)}
+                        >
+                          <span>{t.icon}</span>
+                          <span>{t.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="settings-section">
+                    <div className="settings-section-head">
+                      <h3>ACP Connection</h3>
+                      <span className={`status-pill ${acpStatus}`}>{acpStatus}</span>
+                    </div>
+                    <label>
+                      Launch command
+                      <input
+                        value={settings.acpLaunchCommand}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, acpLaunchCommand: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Working directory
+                      <input
+                        value={settings.cwd}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, cwd: e.target.value }))}
+                      />
+                    </label>
+                    <label className="checkbox-inline">
+                      <input
+                        type="checkbox"
+                        checked={settings.autoAllow}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, autoAllow: e.target.checked }))}
+                      />
+                      Auto-allow permissions
+                    </label>
+                    <label className="checkbox-inline">
+                      <input
+                        type="checkbox"
+                        checked={settings.autoStartAcp}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, autoStartAcp: e.target.checked }))}
+                      />
+                      Auto-start ACP on launch
+                    </label>
+                    <div className="row-actions">
+                      <button className="btn btn-primary" disabled={busy} onClick={connectAndInitialize}>
+                        {acpStatus === "connected" ? "Reconnect" : "Start ACP"}
+                      </button>
+                      <button className="btn" onClick={() => void stopAcp()} disabled={busy || acpStatus === "disconnected"}>Stop</button>
+                    </div>
+                    <div className="row-actions">
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          const saved = await api.saveSettings(settings);
+                          setSettings(saved);
+                        }}
+                      >
+                        Save Settings
+                      </button>
+                    </div>
+                  </section>
                 </div>
-              </section>
 
-              <section>
-                <h3>ACP Connection</h3>
-                <label>
-                  Launch command
-                  <input
-                    value={settings.acpLaunchCommand}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, acpLaunchCommand: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  Working directory
-                  <input
-                    value={settings.cwd}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, cwd: e.target.value }))}
-                  />
-                </label>
-                <label className="checkbox-inline">
-                  <input
-                    type="checkbox"
-                    checked={settings.autoAllow}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, autoAllow: e.target.checked }))}
-                  />
-                  Auto-allow permissions
-                </label>
-                <label className="checkbox-inline">
-                  <input
-                    type="checkbox"
-                    checked={settings.autoStartAcp}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, autoStartAcp: e.target.checked }))}
-                  />
-                  Auto-start ACP on launch
-                </label>
-                <div className="row-actions">
-                  <button className="btn btn-primary" disabled={busy} onClick={connectAndInitialize}>
-                    {acpStatus === "connected" ? "Reconnect" : "Start ACP"}
-                  </button>
-                  <button className="btn" onClick={() => void stopAcp()} disabled={busy || acpStatus === "disconnected"}>Stop</button>
+                <div className="settings-grid">
+                  <details className="settings-section">
+                    <summary>Slash Commands</summary>
+                    <ul className="cmd-list">
+                      {state.availableCommands.map((cmd) => (
+                        <li key={cmd.name}>
+                          <strong>/{cmd.name}</strong>
+                          {cmd.description && <span>{cmd.description}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+
+                  <details className="settings-section">
+                    <summary>Tool Calls ({toolCalls.length})</summary>
+                    {toolCalls.map((tool) => (
+                      <article key={tool.toolCallId} className="drawer-card">
+                        <header>
+                          <strong>{tool.title || tool.toolCallId}</strong>
+                          <span className={`tool-status-badge ${tool.status || "pending"}`}>{tool.status || "pending"}</span>
+                        </header>
+                        <p>{tool.kind || "other"}</p>
+                        {tool.content !== undefined && tool.content !== null && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
+                      </article>
+                    ))}
+                  </details>
                 </div>
-                <div className="row-actions">
-                  <button
-                    className="btn"
-                    onClick={async () => {
-                      const saved = await api.saveSettings(settings);
-                      setSettings(saved);
-                    }}
-                  >
-                    Save Settings
-                  </button>
+
+                <div className="settings-grid">
+                  <details className="settings-section">
+                    <summary>Plan</summary>
+                    <ol className="plan-list">
+                      {state.plan.map((entry, idx) => (
+                        <li key={`${entry.content}-${idx}`} className={`plan-item ${entry.status || "pending"}`}>
+                          {entry.content}
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+
+                  <details className="settings-section">
+                    <summary>Logs</summary>
+                    <div className="drawer-logs">
+                      {state.logs.map((line, idx) => (
+                        <pre key={`${line}-${idx}`}>{line}</pre>
+                      ))}
+                    </div>
+                  </details>
                 </div>
-              </section>
-
-              <details>
-                <summary>Slash Commands</summary>
-                <ul className="cmd-list">
-                  {state.availableCommands.map((cmd) => (
-                    <li key={cmd.name}>
-                      <strong>/{cmd.name}</strong>
-                      {cmd.description && <span>{cmd.description}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-
-              <details>
-                <summary>Tool Calls ({toolCalls.length})</summary>
-                {toolCalls.map((tool) => (
-                  <article key={tool.toolCallId} className="drawer-card">
-                    <header>
-                      <strong>{tool.title || tool.toolCallId}</strong>
-                      <span className={`tool-status-badge ${tool.status || "pending"}`}>{tool.status || "pending"}</span>
-                    </header>
-                    <p>{tool.kind || "other"}</p>
-                    {tool.content !== undefined && tool.content !== null && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
-                  </article>
-                ))}
-              </details>
-
-              <details>
-                <summary>Plan</summary>
-                <ol className="plan-list">
-                  {state.plan.map((entry, idx) => (
-                    <li key={`${entry.content}-${idx}`} className={`plan-item ${entry.status || "pending"}`}>
-                      {entry.content}
-                    </li>
-                  ))}
-                </ol>
-              </details>
-
-              <details>
-                <summary>Logs</summary>
-                <div className="drawer-logs">
-                  {state.logs.map((line, idx) => (
-                    <pre key={`${line}-${idx}`}>{line}</pre>
-                  ))}
-                </div>
-              </details>
-            </aside>
+              </div>
+            </div>
           </div>
         )}
 
@@ -807,7 +935,7 @@ export function App() {
               </div>
               <label className="checkbox-inline">
                 <input type="checkbox" checked={rememberChoice} onChange={(e) => setRememberChoice(e.target.checked)} />
-                Remember for this tool kind (session)
+                Remember for this tool kind (thread)
               </label>
             </div>
           </div>

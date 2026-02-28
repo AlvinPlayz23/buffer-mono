@@ -269,6 +269,13 @@ export class RpcClient {
 	}
 
 	/**
+	 * Set work mode (build or plan).
+	 */
+	async setWorkMode(mode: "build" | "plan"): Promise<void> {
+		await this.send({ type: "set_work_mode", mode });
+	}
+
+	/**
 	 * Compact session context.
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {

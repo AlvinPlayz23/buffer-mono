@@ -38,6 +38,7 @@ export type RpcCommand =
 	// Queue modes
 	| { id?: string; type: "set_steering_mode"; mode: "all" | "one-at-a-time" }
 	| { id?: string; type: "set_follow_up_mode"; mode: "all" | "one-at-a-time" }
+	| { id?: string; type: "set_work_mode"; mode: "build" | "plan" }
 
 	// Compaction
 	| { id?: string; type: "compact"; customInstructions?: string }
@@ -95,6 +96,7 @@ export interface RpcSessionState {
 	isCompacting: boolean;
 	steeringMode: "all" | "one-at-a-time";
 	followUpMode: "all" | "one-at-a-time";
+	workMode: "build" | "plan";
 	sessionFile?: string;
 	sessionId: string;
 	sessionName?: string;
@@ -155,6 +157,7 @@ export type RpcResponse =
 	// Queue modes
 	| { id?: string; type: "response"; command: "set_steering_mode"; success: true }
 	| { id?: string; type: "response"; command: "set_follow_up_mode"; success: true }
+	| { id?: string; type: "response"; command: "set_work_mode"; success: true }
 
 	// Compaction
 	| { id?: string; type: "response"; command: "compact"; success: true; data: CompactionResult }

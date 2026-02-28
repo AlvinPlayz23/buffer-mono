@@ -5,17 +5,20 @@ contextBridge.exposeInMainWorld("acpDesktop", {
   saveSettings: (settings) => ipcRenderer.invoke("acp:save-settings", settings),
   pickFolder: () => ipcRenderer.invoke("system:pick-folder"),
 
-  listThreads: () => ipcRenderer.invoke("threads:list"),
-  createThread: (params) => ipcRenderer.invoke("threads:create", params),
-  selectThread: (threadId) => ipcRenderer.invoke("threads:select", { threadId }),
-  removeThread: (threadId) => ipcRenderer.invoke("threads:remove", { threadId }),
+  listProjects: () => ipcRenderer.invoke("projects:list"),
+  createProject: (params) => ipcRenderer.invoke("projects:create", params),
+  selectProject: (projectId) => ipcRenderer.invoke("projects:select", { projectId }),
+  removeProject: (projectId) => ipcRenderer.invoke("projects:remove", { projectId }),
 
-  listSessions: (threadId) => ipcRenderer.invoke("sessions:list", { threadId }),
-  renameSession: (sessionId, title) => ipcRenderer.invoke("sessions:rename", { sessionId, title }),
+  listThreads: (projectId) => ipcRenderer.invoke("threads:list", { projectId }),
+  renameThread: (threadId, title) => ipcRenderer.invoke("threads:rename", { threadId, title }),
 
-  getThreadPrefs: (threadId) => ipcRenderer.invoke("prefs:get-thread", { threadId }),
-  setThreadModelPref: (threadId, modelId) => ipcRenderer.invoke("prefs:set-thread-model", { threadId, modelId }),
+  getProjectPrefs: (projectId) => ipcRenderer.invoke("prefs:get-project", { projectId }),
+  setProjectModelPref: (projectId, modelId) => ipcRenderer.invoke("prefs:set-project-model", { projectId, modelId }),
+  getProjectMeta: (projectId) => ipcRenderer.invoke("prefs:get-project-meta", { projectId }),
+  setProjectMeta: (projectId, meta) => ipcRenderer.invoke("prefs:set-project-meta", { projectId, meta }),
 
+  getAcpStatus: () => ipcRenderer.invoke("acp:status"),
   start: (config) => ipcRenderer.invoke("acp:start", config),
   stop: () => ipcRenderer.invoke("acp:stop"),
   initialize: (params) => ipcRenderer.invoke("acp:initialize", params),
@@ -23,7 +26,9 @@ contextBridge.exposeInMainWorld("acpDesktop", {
   loadSession: (params) => ipcRenderer.invoke("acp:load-session", params),
   prompt: (params) => ipcRenderer.invoke("acp:prompt", params),
   cancel: (params) => ipcRenderer.invoke("acp:cancel", params),
+  deleteSession: (params) => ipcRenderer.invoke("acp:delete-session", params),
   setMode: (params) => ipcRenderer.invoke("acp:set-mode", params),
+  setModel: (params) => ipcRenderer.invoke("acp:set-model", params),
   respondPermission: (requestId, outcome) => ipcRenderer.invoke("acp:respond-permission", requestId, outcome),
 
   onEvent: (callback) => {
