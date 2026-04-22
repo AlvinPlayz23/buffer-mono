@@ -16,6 +16,7 @@ const toolDescriptions: Record<string, string> = {
 	ls: "List directory contents",
 	implement: "Ask user to switch to build mode and start implementing the prepared plan",
 	ask: "Ask the user structured clarification questions with options",
+	task: "Delegate bounded work to a subagent",
 	plan_create: "Create a markdown plan file under .buffer",
 };
 
@@ -119,6 +120,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 	const hasFind = tools.includes("find");
 	const hasLs = tools.includes("ls");
 	const hasRead = tools.includes("read");
+	const hasAsk = tools.includes("ask");
+	const hasTask = tools.includes("task");
 
 	// File exploration guidelines
 	if (hasBash && !hasGrep && !hasFind && !hasLs) {
@@ -146,6 +149,23 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 	if (hasEdit || hasWrite) {
 		guidelinesList.push(
 			"When summarizing your actions, output plain text directly - do NOT use cat or bash to display what you did",
+		);
+	}
+
+	// Ask guideline
+	if (hasAsk) {
+		guidelinesList.push(
+			"Use ask when structured clarification from the user is genuinely needed and reasonable assumptions would be risky; do not use ask when you can discover the answer from the repo or proceed safely on your own",
+		);
+	}
+
+	// Task guideline
+	if (hasTask) {
+		guidelinesList.push(
+			"Use task to delegate bounded, parallelizable work to subagents. Prefer it for deep read-only investigation across multiple files, directories, or packages, and for independent implementation chunks with explicit scope",
+		);
+		guidelinesList.push(
+			"When using task, give normal natural-language assignments focused on outcome, target files, and constraints. Do not micromanage shell commands unless exact commands or snippets are required",
 		);
 	}
 

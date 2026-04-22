@@ -409,24 +409,22 @@ export class ToolExecutionComponent extends Container {
 				}
 			}
 
-			// Truncation warnings
+			// Truncation: compact single-line summary
 			const truncation = this.result.details?.truncation;
 			const fullOutputPath = this.result.details?.fullOutputPath;
 			if (truncation?.truncated || fullOutputPath) {
-				const warnings: string[] = [];
+				const parts: string[] = ["truncated"];
+				if (truncation?.outputLines) {
+					parts.push(`${truncation.outputLines} lines`);
+				}
+				if (truncation?.maxBytes) {
+					parts.push(formatSize(truncation.maxBytes));
+				}
 				if (fullOutputPath) {
-					warnings.push(`Full output: ${fullOutputPath}`);
+					const fileName = fullOutputPath.replace(/^.*[/\\]/, "");
+					parts.push(`→ ${fileName}`);
 				}
-				if (truncation?.truncated) {
-					if (truncation.truncatedBy === "lines") {
-						warnings.push(`Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines`);
-					} else {
-						warnings.push(
-							`Truncated: ${truncation.outputLines} lines shown (${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit)`,
-						);
-					}
-				}
-				this.contentBox.addChild(new Text(`\n${theme.fg("muted", `[${warnings.join(". ")}]`)}`, 0, 0));
+				this.contentBox.addChild(new Text(`\n${theme.fg("dim", parts.join(" · "))}`, 0, 0));
 			}
 		}
 	}

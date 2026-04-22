@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import * as os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -8,7 +8,7 @@ import { discoverAgents, getAgent } from "./discovery.js";
 import { runSubprocess } from "./executor.js";
 import { AgentOutputManager } from "./output-manager.js";
 import { mapWithConcurrencyLimit } from "./parallel.js";
-import { getTaskSimpleModeCapabilities, type TaskSimpleMode } from "./simple-mode.js";
+import type { TaskSimpleMode } from "./simple-mode.js";
 import { renderTemplate } from "./template.js";
 import type { AgentDefinition, AgentProgress, SingleResult, TaskParams, TaskToolDetails } from "./types.js";
 import { getTaskSchema } from "./types.js";
@@ -99,7 +99,9 @@ export class TaskTool implements AgentTool<TSchema, TaskToolDetails> {
 	}
 
 	get description(): string {
-		return this.#agents.length > 0 ? buildDescription(this.#agents) : "Launches subagents to parallelize bounded work.";
+		return this.#agents.length > 0
+			? `${buildDescription(this.#agents)}\n\nUse normal natural-language assignments. Describe the outcome, target files, and constraints. Do not micromanage shell commands unless an exact command or snippet is required.`
+			: "Launches subagents to parallelize bounded work. Use normal natural-language assignments; avoid scripting each command unless exact commands are required.";
 	}
 
 	get parameters(): TSchema {
@@ -124,9 +126,7 @@ export class TaskTool implements AgentTool<TSchema, TaskToolDetails> {
 			};
 		}
 
-		const { contextEnabled } = getTaskSimpleModeCapabilities("default");
-		const sharedContext = contextEnabled ? params.context : undefined;
-		const renderedTasks = params.tasks.map((task) => renderTemplate(sharedContext, task, "default"));
+		const renderedTasks = params.tasks.map((task) => renderTemplate(task));
 		const progress = new Map<number, AgentProgress>();
 		for (let index = 0; index < renderedTasks.length; index++) {
 			const task = renderedTasks[index]!;
@@ -149,10 +149,6 @@ export class TaskTool implements AgentTool<TSchema, TaskToolDetails> {
 
 		const tempArtifactsDir = path.join(os.tmpdir(), `buffer-task-${randomUUID()}`);
 		await mkdir(tempArtifactsDir, { recursive: true });
-		const contextFile = sharedContext ? path.join(tempArtifactsDir, "context.md") : undefined;
-		if (contextFile) {
-			await writeFile(contextFile, sharedContext!, "utf-8");
-		}
 
 		const outputManager = new AgentOutputManager(() => tempArtifactsDir);
 		const uniqueIds = await outputManager.allocateBatch(renderedTasks.map((task) => task.id));
@@ -190,7 +186,6 @@ export class TaskTool implements AgentTool<TSchema, TaskToolDetails> {
 					outputSchema: params.schema ? JSON.parse(params.schema) : selectedAgent.output,
 					taskDepth: 0,
 					signal,
-					contextFile,
 					artifactsDir: tempArtifactsDir,
 					eventBus: this.session.taskEventBus,
 					parentSession: this.session,

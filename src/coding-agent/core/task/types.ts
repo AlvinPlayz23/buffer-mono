@@ -38,40 +38,30 @@ export interface SubagentLifecyclePayload {
 	index: number;
 }
 
-const assignmentDescriptionForContextEnabled =
-	"Complete per-task instructions for the subagent. Follow the Target/Change/Edge Cases/Acceptance structure.";
-const assignmentDescriptionForContextDisabled =
-	"Complete self-contained per-task instructions. Include all required background because shared context is disabled.";
+const assignmentDescription =
+	"Self-contained natural-language assignment for one subagent. State the target files or area, the desired outcome, and any key constraints. Do not script every command unless an exact snippet or command is required.";
 
-const createTaskItemSchema = (contextEnabled: boolean) =>
+const createTaskItemSchema = () =>
 	Type.Object({
 		id: Type.String({ description: "CamelCase identifier, max 48 chars", maxLength: 48 }),
 		description: Type.String({ description: "Short display label for UI only" }),
 		assignment: Type.String({
-			description: contextEnabled ? assignmentDescriptionForContextEnabled : assignmentDescriptionForContextDisabled,
+			description: assignmentDescription,
 		}),
 	});
 
-export const taskItemSchema = createTaskItemSchema(true);
+export const taskItemSchema = createTaskItemSchema();
 export type TaskItem = Static<typeof taskItemSchema>;
 
 const createTaskSchema = (options: { simpleMode: TaskSimpleMode }) => {
-	const { contextEnabled, customSchemaEnabled } = getTaskSimpleModeCapabilities(options.simpleMode);
+	const { customSchemaEnabled } = getTaskSimpleModeCapabilities(options.simpleMode);
 	const properties: Record<string, TSchema> = {
 		agent: Type.String({ description: "Agent type for all tasks in this batch" }),
-		tasks: Type.Array(createTaskItemSchema(contextEnabled), {
+		tasks: Type.Array(createTaskItemSchema(), {
 			description: "Tasks to execute. Keep each task explicitly scoped and independently understandable.",
 			minItems: 1,
 		}),
 	};
-
-	if (contextEnabled) {
-		properties.context = Type.Optional(
-			Type.String({
-				description: "Shared background prepended to each task assignment.",
-			}),
-		);
-	}
 
 	if (customSchemaEnabled) {
 		properties.schema = Type.Optional(
@@ -103,7 +93,6 @@ export function getTaskSchema(options: { isolationEnabled: boolean; simpleMode: 
 
 export interface TaskParams {
 	agent: string;
-	context?: string;
 	schema?: string;
 	tasks: TaskItem[];
 }

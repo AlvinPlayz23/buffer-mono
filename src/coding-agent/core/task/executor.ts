@@ -31,7 +31,6 @@ export interface ExecutorOptions {
 	signal?: AbortSignal;
 	onProgress?: (progress: AgentProgress) => void;
 	artifactsDir?: string;
-	contextFile?: string;
 	eventBus?: { emit(channel: string, data: unknown): void };
 	parentSession: {
 		model: any;
@@ -153,7 +152,7 @@ function createSubagentResourceLoader(parent: ResourceLoader): ResourceLoader {
 	};
 }
 
-function buildSubagentSystemPrompt(base: string, agent: AgentDefinition, contextFile?: string): string {
+function buildSubagentSystemPrompt(base: string, agent: AgentDefinition): string {
 	const parts = [
 		base,
 		"",
@@ -161,11 +160,10 @@ function buildSubagentSystemPrompt(base: string, agent: AgentDefinition, context
 		agent.systemPrompt.trim(),
 		"",
 		"You are operating on a delegated subtask.",
+		"Treat the assignment as an outcome-oriented ticket, not a shell script to replay.",
+		"Choose the tools and sequence yourself unless the assignment explicitly requires an exact command, snippet, or reference.",
 		"No progress chatter. Execute the assignment and call `submit_result` exactly once when done.",
 	];
-	if (contextFile) {
-		parts.push(`If needed, inspect parent context in \`${contextFile}\`.`);
-	}
 	return parts.join("\n");
 }
 
@@ -257,7 +255,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	} else {
 		session.setActiveToolsByName(toolNames);
 	}
-	session.agent.setSystemPrompt(buildSubagentSystemPrompt(session.systemPrompt, options.agent, options.contextFile));
+	session.agent.setSystemPrompt(buildSubagentSystemPrompt(session.systemPrompt, options.agent));
 
 	options.eventBus?.emit(TASK_SUBAGENT_LIFECYCLE_CHANNEL, {
 		id: options.id,

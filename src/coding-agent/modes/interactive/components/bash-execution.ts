@@ -176,10 +176,11 @@ export class BashExecutionComponent extends Container {
 				statusParts.push(theme.fg("muted", `(exit ${this.exitCode})`));
 			}
 
-			// Add truncation warning (context truncation, not preview truncation)
+			// Add truncation note (compact single-line)
 			const wasTruncated = this.truncationResult?.truncated || contextTruncation.truncated;
 			if (wasTruncated && this.fullOutputPath) {
-				statusParts.push(theme.fg("muted", `Output truncated. Full output: ${this.fullOutputPath}`));
+				const fileName = this.fullOutputPath.replace(/^.*[/\\]/, "");
+				statusParts.push(theme.fg("dim", `truncated → ${fileName}`));
 			}
 
 			if (statusParts.length > 0) {

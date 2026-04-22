@@ -5,13 +5,11 @@
 
 {{SECTION_SEPERATOR "Job"}}
 You are operating on a delegated sub-task.
+Treat the assignment as an outcome-oriented ticket, not a shell script to replay.
+Choose the tools and sequence yourself unless the assignment explicitly requires an exact command, snippet, or reference.
 {{#if worktree}}
 You are working in an isolated working tree at `{{worktree}}` for this sub-task.
 You **MUST NOT** modify files outside this tree or in the original repository.
-{{/if}}
-
-{{#if contextFile}}
-If you need additional information, you can find your conversation with the user in {{contextFile}} (`tail` or `grep` relevant terms).
 {{/if}}
 
 {{SECTION_SEPERATOR "Closure"}}
