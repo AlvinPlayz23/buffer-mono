@@ -11,7 +11,7 @@ import {
 	truncateTail,
 } from "../../../core/tools/truncate.js";
 import { theme } from "../theme/theme.js";
-import { DynamicBorder } from "./dynamic-border.js";
+import { ToolPill } from "./tool-pill.js";
 import { editorKey, keyHint } from "./keybinding-hints.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
 
@@ -29,8 +29,7 @@ export class BashExecutionComponent extends Container {
 	private expanded = false;
 	private contentContainer: Container;
 	private ui: TUI;
-	private topBorder: DynamicBorder;
-	private bottomBorder: DynamicBorder;
+	private toolPill: ToolPill;
 
 	private getBorderColor(): (str: string) => string {
 		if (this.status === "error") return (str: string) => theme.fg("error", str);
@@ -47,17 +46,13 @@ export class BashExecutionComponent extends Container {
 		// Add spacer
 		this.addChild(new Spacer(1));
 
-		// Top border
-		this.topBorder = new DynamicBorder((str) => this.getBorderColor()(str));
-		this.addChild(this.topBorder);
+		// Tool pill with command inline
+		this.toolPill = new ToolPill("bash", (str) => this.getBorderColor()(str), theme.fg("muted", command));
+		this.addChild(this.toolPill);
 
-		// Content container (holds dynamic content between borders)
+		// Content container (holds dynamic content below pill)
 		this.contentContainer = new Container();
 		this.addChild(this.contentContainer);
-
-		// Command header
-		const header = new Text(theme.fg("muted", theme.bold(`$ ${command}`)), 1, 0);
-		this.contentContainer.addChild(header);
 
 		// Loader
 		this.loader = new Loader(
@@ -67,10 +62,6 @@ export class BashExecutionComponent extends Container {
 			`Running... (${editorKey("selectCancel")} to cancel)`, // Plain text for loader
 		);
 		this.contentContainer.addChild(this.loader);
-
-		// Bottom border
-		this.bottomBorder = new DynamicBorder((str) => this.getBorderColor()(str));
-		this.addChild(this.bottomBorder);
 	}
 
 	/**
@@ -142,10 +133,6 @@ export class BashExecutionComponent extends Container {
 
 		// Rebuild content container
 		this.contentContainer.clear();
-
-		// Command header
-		const header = new Text(theme.fg("muted", theme.bold(`$ ${this.command}`)), 1, 0);
-		this.contentContainer.addChild(header);
 
 		// Output
 		if (availableLines.length > 0) {

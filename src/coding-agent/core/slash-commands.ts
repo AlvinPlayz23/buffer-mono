@@ -17,6 +17,8 @@ export interface BuiltinSlashCommand {
 
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },
+	{ name: "agents", description: "List available task agents" },
+	{ name: "tasks", description: "Show task execution settings" },
 	{ name: "plan", description: "Toggle plan mode (planning-only workflow)" },
 	{ name: "view", description: "Switch terminal view mode (alt-mode or text-buffer)" },
 	{ name: "model", description: "Select model (opens selector UI)" },
@@ -41,5 +43,6 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "compact", description: "Manually compact the session context" },
 	{ name: "resume", description: "Resume a different session" },
 	{ name: "reload", description: "Reload extensions, skills, prompts, and themes" },
+	{ name: "changes", description: "Toggle showing file changes after each turn" },
 	{ name: "quit", description: "Quit buffer" },
 ];

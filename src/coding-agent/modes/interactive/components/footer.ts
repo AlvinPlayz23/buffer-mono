@@ -144,7 +144,19 @@ export class FooterComponent implements Component {
 		} else {
 			contextPercentStr = contextPercentDisplay;
 		}
-		statsParts.push(contextPercentStr);
+		// Build context gauge (8 blocks)
+		const gaugeBlocks = 8;
+		const filledBlocks = Math.round((contextPercentValue / 100) * gaugeBlocks);
+		const gauge = "▰".repeat(filledBlocks) + "▱".repeat(gaugeBlocks - filledBlocks);
+		let gaugeStr: string;
+		if (contextPercentValue > 90) {
+			gaugeStr = theme.fg("error", gauge);
+		} else if (contextPercentValue > 70) {
+			gaugeStr = theme.fg("warning", gauge);
+		} else {
+			gaugeStr = theme.fg("success", gauge);
+		}
+		statsParts.push(gaugeStr + " " + contextPercentStr);
 
 		let statsLeft = statsParts.join(" ");
 

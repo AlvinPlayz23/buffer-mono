@@ -1,5 +1,6 @@
 // UI Components for extensions
 export { ArminComponent } from "./armin.js";
+export { ChangeTreeComponent, type FileChange } from "./change-tree.js";
 export { AssistantMessageComponent } from "./assistant-message.js";
 export { BashExecutionComponent } from "./bash-execution.js";
 export { BorderedLoader } from "./bordered-loader.js";
@@ -10,6 +11,7 @@ export { CustomMessageComponent } from "./custom-message.js";
 export { DaxnutsComponent } from "./daxnuts.js";
 export { type RenderDiffOptions, renderDiff } from "./diff.js";
 export { DynamicBorder } from "./dynamic-border.js";
+export { ToolPill } from "./tool-pill.js";
 export { ExtensionEditorComponent } from "./extension-editor.js";
 export { ExtensionInputComponent } from "./extension-input.js";
 export { ExtensionSelectorComponent } from "./extension-selector.js";

@@ -9,7 +9,7 @@ import { grepTool } from "../../src/coding-agent/core/tools/grep.js";
 import { createImplementTool } from "../../src/coding-agent/core/tools/implement.js";
 import { lsTool } from "../../src/coding-agent/core/tools/ls.js";
 import { createPlanCreateTool } from "../../src/coding-agent/core/tools/plan-create.js";
-import { createQuestionTool } from "../../src/coding-agent/core/tools/question.js";
+import { createAskTool } from "../../src/coding-agent/core/tools/ask.js";
 import { readTool } from "../../src/coding-agent/core/tools/read.js";
 import { writeTool } from "../../src/coding-agent/core/tools/write.js";
 import * as shellModule from "../../src/coding-agent/utils/shell.js";
@@ -214,40 +214,202 @@ describe("Coding Agent Tools", () => {
 		});
 	});
 
-	describe("question tool", () => {
+	describe("ask tool", () => {
+		it("should be creatable without UI so it can register as a native tool", async () => {
+			const tool = createAskTool({ hasUI: false });
+
+			expect(tool.name).toBe("ask");
+			await expect(
+				tool.execute("ask-no-ui", {
+					questions: [
+						{
+							id: "choice",
+							question: "Choose one",
+							options: [{ label: "Option A" }, { label: "Option B" }],
+						},
+					],
+				}),
+			).resolves.toMatchObject({
+				content: [{ type: "text", text: "Error: User prompt requires interactive mode" }],
+			});
+		});
+
 		it("should return selected option", async () => {
-			const tool = createQuestionTool({
-				operations: {
-					askQuestion: async () => ({
-						answer: "Option B",
-						selectedIndex: 1,
-						isCustom: false,
-					}),
+			const tool = createAskTool({
+				hasUI: true,
+				ui: {
+					custom: (async () => ({
+						cancelled: false,
+						timedOut: false,
+						results: [
+							{
+								id: "choice",
+								question: "Choose one",
+								options: ["Option A", "Option B"],
+								multi: false,
+								selectedOptions: ["Option B"],
+							},
+						],
+					})) as any,
+					notify: () => {},
 				},
+			})!;
+
+			const result = await tool.execute("ask-1", {
+				questions: [
+					{
+						id: "choice",
+						question: "Choose one",
+						options: [{ label: "Option A" }, { label: "Option B" }],
+					},
+				],
 			});
 
-			const result = await tool.execute("question-1", {
+			expect(getTextOutput(result)).toContain("User selected: Option B");
+			expect(result.details).toEqual({
 				question: "Choose one",
 				options: ["Option A", "Option B"],
+				multi: false,
+				selectedOptions: ["Option B"],
+				customInput: undefined,
+				cancelled: false,
+				timedOut: false,
+			});
+		});
+
+		it("should preserve explicit empty-string custom input", async () => {
+			const tool = createAskTool({
+				hasUI: true,
+				ui: {
+					custom: (async () => ({
+						cancelled: false,
+						timedOut: false,
+						abortTurn: false,
+						results: [
+							{
+								id: "details",
+								question: "Details?",
+								options: ["Short", "Long"],
+								multi: false,
+								selectedOptions: [],
+								customInput: "",
+							},
+						],
+					})) as any,
+					notify: () => {},
+				},
+			})!;
+
+			const result = await tool.execute("ask-empty-input", {
+				questions: [
+					{
+						id: "details",
+						question: "Details?",
+						options: [{ label: "Short" }, { label: "Long" }],
+					},
+				],
 			});
 
-			expect(getTextOutput(result)).toContain("User answer (option 2): Option B");
-			expect(result.details).toEqual({ selectedIndex: 1, isCustom: false });
+			expect(getTextOutput(result)).toBe("User provided custom input: ");
+			expect(result.details?.customInput).toBe("");
+		});
+
+		it("should abort the current turn when the user explicitly cancels", async () => {
+			const abortTurn = vi.fn();
+			const tool = createAskTool({
+				hasUI: true,
+				abortTurn,
+				ui: {
+					custom: (async () => ({
+						cancelled: true,
+						timedOut: false,
+						abortTurn: true,
+						results: [
+							{
+								id: "choice",
+								question: "Choose one",
+								options: ["Option A", "Option B"],
+								multi: false,
+								selectedOptions: [],
+							},
+						],
+					})) as any,
+					notify: () => {},
+				},
+			})!;
+
+			const result = await tool.execute("ask-cancel", {
+				questions: [
+					{
+						id: "choice",
+						question: "Choose one",
+						options: [{ label: "Option A" }, { label: "Option B" }],
+					},
+				],
+			});
+
+			expect(abortTurn).toHaveBeenCalledTimes(1);
+			expect(getTextOutput(result)).toContain("User cancelled the selection");
+			expect(result.details?.cancelled).toBe(true);
+		});
+
+		it("should use the session timeout getter outside plan mode", async () => {
+			const tool = createAskTool({
+				hasUI: true,
+				getPlanModeState: () => ({ enabled: false }),
+				getTimeoutMs: () => 1234,
+				ui: {
+					custom: (async (_factory: any) => ({
+						cancelled: false,
+						timedOut: true,
+						abortTurn: false,
+						results: [
+							{
+								id: "choice",
+								question: "Choose one",
+								options: ["Option A", "Option B"],
+								multi: false,
+								selectedOptions: ["Option A"],
+							},
+						],
+					})) as any,
+					notify: () => {},
+				},
+			})!;
+
+			const result = await tool.execute("ask-timeout", {
+				questions: [
+					{
+						id: "choice",
+						question: "Choose one",
+						options: [{ label: "Option A" }, { label: "Option B" }],
+					},
+				],
+			});
+
+			expect(result.details?.timedOut).toBe(true);
 		});
 
 		it("should reject invalid option counts", async () => {
-			const tool = createQuestionTool({
-				operations: {
-					askQuestion: async () => ({ answer: "A", selectedIndex: 0, isCustom: false }),
+			const tool = createAskTool({
+				hasUI: true,
+				ui: {
+					custom: (async () => ({ cancelled: false, timedOut: false, abortTurn: false, results: [] })) as any,
+					notify: () => {},
 				},
-			});
+			})!;
 
 			await expect(
-				tool.execute("question-2", {
-					question: "Too few",
-					options: ["Only one"],
+				tool.execute("ask-2", {
+					questions: [
+						{
+							id: "few",
+							question: "Too few",
+							options: [{ label: "Only one" }],
+						},
+					],
 				}),
-			).rejects.toThrow(/requires 2-3 options/i);
+			).rejects.toThrow(/requires 2-5 options/i);
 		});
 	});
 

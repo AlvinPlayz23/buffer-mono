@@ -1,0 +1,90 @@
+
+src/coding-agent/core/agent-session.ts:2066:7 - error TS2741: Property 'get' is missing in type 'SettingsManager' but required in type '{ get: (key: string) => any; }'.
+
+2066       settings: this.settingsManager,
+           ~~~~~~~~
+
+  src/coding-agent/core/tools/ask.ts:373:14
+    373  settings: { get: (key: string) => any };
+                     ~~~
+    'get' is declared here.
+
+src/coding-agent/core/tools/ask.ts:18:26 - error TS2724: '"#buffer-agent-core"' has no exported member named 'AgentToolContext'. Did you mean 'AgentContext'?
+
+18 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "#buffer-agent-core";
+                            ~~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:19:47 - error TS2305: Module '"#buffer-tui"' has no exported member 'renderInlineMarkdown'.
+
+19 import { type Component, Container, Markdown, renderInlineMarkdown, Text } from "#buffer-tui";        
+                                                 ~~~~~~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:20:38 - error TS2307: Cannot find module '#buffer-utils' or its corresponding type declarations.
+
+20 import { prompt, untilAborted } from "#buffer-utils";
+                                        ~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:22:42 - error TS2834: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Consider adding an extension to the import path.
+
+22 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
+                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:23:53 - error TS2834: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Consider adding an extension to the import path.
+
+23 import { getMarkdownTheme, theme, type Theme } from "../modes/theme/theme";
+                                                       ~~~~~~~~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:24:28 - error TS2307: Cannot find module '../prompts/tools/ask.md' or 
+its corresponding type declarations.
+
+24 import askDescription from "../prompts/tools/ask.md" with { type: "text" };
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:24:54 - error TS2823: Import attributes are only supported when the '--module' option is set to 'esnext', 'node18', 'node20', 'nodenext', or 'preserve'.
+
+24 import askDescription from "../prompts/tools/ask.md" with { type: "text" };
+                                                        ~~~~~~~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:25:34 - error TS2834: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Consider adding an extension to the import path.
+
+25 import { renderStatusLine } from "../tui";
+                                    ~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:26:61 - error TS2834: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Consider adding an extension to the import path.
+
+26 import { formatErrorMessage, formatMeta, formatTitle } from "./render-utils";
+                                                               ~~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:27:32 - error TS2834: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Consider adding an extension to the import path.
+
+27 import { ToolAbortError } from "./tool-errors";
+                                  ~~~~~~~~~~~~~~~
+
+src/coding-agent/core/tools/ask.ts:634:65 - error TS7006: Parameter 't' implicitly has an 'any' type.    
+
+634       const optLabel = renderInlineMarkdown(opt.label, mdTheme, t => uiTheme.fg("muted", t));        
+                                                                    ~
+
+src/coding-agent/core/tools/ask.ts:661:63 - error TS7006: Parameter 't' implicitly has an 'any' type.    
+
+661     const optLabel = renderInlineMarkdown(opt.label, mdTheme, t => uiTheme.fg("muted", t));
+                                                                  ~
+
+src/coding-agent/core/tools/ask.ts:721:80 - error TS7006: Parameter 't' implicitly has an 'any' type.    
+
+721      const selectedLabel = renderInlineMarkdown(r.selectedOptions[j], mdTheme, t =>
+                                                                                   ~
+
+src/coding-agent/core/tools/ask.ts:765:85 - error TS7006: Parameter 't' implicitly has an 'any' type.    
+
+765     const selectedLabel = renderInlineMarkdown(details.selectedOptions[i], mdTheme, t =>
+                                                                                        ~
+
+
+Found 15 errors in 2 files.
+
+Errors  Files
+     1  src/coding-agent/core/agent-session.ts:2066
+    14  src/coding-agent/core/tools/ask.ts:18
+ ELIFECYCLE  Command failed with exit code 2.
+PS C:\Users\bijim\pi-freecode\buffer-2> 

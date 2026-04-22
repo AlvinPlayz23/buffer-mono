@@ -80,6 +80,7 @@ import { BashExecutionComponent } from "./components/bash-execution.js";
 import { type BackgroundJobView, BackgroundJobsComponent } from "./components/background-jobs.js";
 import { BorderedLoader } from "./components/bordered-loader.js";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.js";
+import { ChangeTreeComponent, type FileChange } from "./components/change-tree.js";
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.js";
 import { CustomEditor } from "./components/custom-editor.js";
 import { CustomMessageComponent } from "./components/custom-message.js";
@@ -98,6 +99,7 @@ import { SessionSelectorComponent } from "./components/session-selector.js";
 import { SettingsSelectorComponent } from "./components/settings-selector.js";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
+import { WaveLoader } from "./components/wave-loader.js";
 import { TreeSelectorComponent } from "./components/tree-selector.js";
 import { UserMessageComponent } from "./components/user-message.js";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.js";
@@ -194,7 +196,7 @@ export class InteractiveMode {
 	private version: string;
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
-	private loadingAnimation: Loader | undefined = undefined;
+	private loadingAnimation: WaveLoader | undefined = undefined;
 	private pendingWorkingMessage: string | undefined = undefined;
 	private readonly defaultWorkingMessage = "Working...";
 
@@ -236,6 +238,11 @@ export class InteractiveMode {
 
 	// Background command jobs started via /bg
 	private backgroundJobs = new Map<string, BackgroundJob>();
+
+	// Change tree state
+	private showChanges = true;
+	private currentTurnChanges: FileChange[] = [];
+	private pendingToolArgs = new Map<string, { toolName: string; args: any }>();
 
 	// Auto-compaction state
 	private autoCompactionLoader: Loader | undefined = undefined;
@@ -1917,6 +1924,16 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/agents") {
+				this.editor.setText("");
+				await this.handleAgentsCommand();
+				return;
+			}
+			if (text === "/tasks") {
+				this.editor.setText("");
+				this.handleTasksCommand();
+				return;
+			}
 			if (text === "/view") {
 				this.showViewModeSelector();
 				this.editor.setText("");
@@ -1990,6 +2007,12 @@ export class InteractiveMode {
 			}
 			if (text === "/help") {
 				this.handleHelpCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/changes") {
+				this.showChanges = !this.showChanges;
+				this.showStatus(this.showChanges ? "Change tree enabled" : "Change tree disabled");
 				this.editor.setText("");
 				return;
 			}
@@ -2141,7 +2164,7 @@ export class InteractiveMode {
 					this.loadingAnimation.stop();
 				}
 				this.statusContainer.clear();
-				this.loadingAnimation = new Loader(
+				this.loadingAnimation = new WaveLoader(
 					this.ui,
 					(spinner) => theme.fg("accent", spinner),
 					(text) => theme.fg("muted", text),
@@ -2267,6 +2290,10 @@ export class InteractiveMode {
 					this.pendingTools.set(event.toolCallId, component);
 					this.ui.requestRender();
 				}
+				// Track args for change tree
+				if (event.toolName === "write" || event.toolName === "edit") {
+					this.pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
+				}
 				break;
 			}
 
@@ -2286,6 +2313,21 @@ export class InteractiveMode {
 					this.pendingTools.delete(event.toolCallId);
 					this.ui.requestRender();
 				}
+				// Track file changes for change tree
+				const trackedTool = this.pendingToolArgs.get(event.toolCallId);
+				if (trackedTool && !event.isError) {
+					const filePath = trackedTool.args?.path || "";
+					if (filePath) {
+						const details = event.result?.details;
+						this.currentTurnChanges.push({
+							path: filePath,
+							type: trackedTool.toolName as "write" | "edit",
+							additions: details?.additions,
+							deletions: details?.deletions,
+						});
+					}
+					this.pendingToolArgs.delete(event.toolCallId);
+				}
 				break;
 			}
 
@@ -2301,6 +2343,13 @@ export class InteractiveMode {
 					this.streamingMessage = undefined;
 				}
 				this.pendingTools.clear();
+				this.pendingToolArgs.clear();
+
+				// Show change tree if enabled and there were file changes
+				if (this.showChanges && this.currentTurnChanges.length > 0) {
+					this.chatContainer.addChild(new ChangeTreeComponent(this.currentTurnChanges));
+				}
+				this.currentTurnChanges = [];
 
 				await this.checkShutdownRequested();
 
@@ -4417,6 +4466,36 @@ export class InteractiveMode {
 
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(info, 1, 0));
+		this.ui.requestRender();
+	}
+
+	private async handleAgentsCommand(): Promise<void> {
+		const agents = await this.session.listTaskAgents();
+		const text = [
+			theme.bold("Task Agents"),
+			"",
+			...agents.map((agent) => {
+				const tools = agent.tools?.join(", ") ?? "default tool set";
+				return `${theme.fg("accent", agent.name)}\n${theme.fg("dim", agent.description)}\n${theme.fg("muted", `tools: ${tools}`)}`;
+			}),
+		].join("\n\n");
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(text, 1, 0));
+		this.ui.requestRender();
+	}
+
+	private handleTasksCommand(): void {
+		const text = [
+			theme.bold("Task Settings"),
+			"",
+			`${theme.fg("dim", "Max concurrency:")} ${this.settingsManager.getTaskMaxConcurrency()}`,
+			`${theme.fg("dim", "Max recursion depth:")} ${this.settingsManager.getTaskMaxRecursionDepth()}`,
+			`${theme.fg("dim", "Show progress:")} ${this.settingsManager.getTaskShowProgress() ? "yes" : "no"}`,
+			`${theme.fg("dim", "Max output bytes:")} ${this.settingsManager.getTaskMaxOutputBytes().toLocaleString()}`,
+			`${theme.fg("dim", "Max output lines:")} ${this.settingsManager.getTaskMaxOutputLines().toLocaleString()}`,
+		].join("\n");
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(text, 1, 0));
 		this.ui.requestRender();
 	}
 

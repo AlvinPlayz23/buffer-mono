@@ -15,14 +15,14 @@ const toolDescriptions: Record<string, string> = {
 	find: "Find files by glob pattern (respects .gitignore)",
 	ls: "List directory contents",
 	implement: "Ask user to switch to build mode and start implementing the prepared plan",
-	question: "Ask the user a structured clarification question with options",
+	ask: "Ask the user structured clarification questions with options",
 	plan_create: "Create a markdown plan file under .buffer",
 };
 
 export interface BuildSystemPromptOptions {
 	/** Custom system prompt (replaces default). */
 	customPrompt?: string;
-	/** Tools to include in prompt. Default: [read, bash, edit, write] */
+	/** Tools to include in prompt. Default: [read, bash, edit, write, ask] */
 	selectedTools?: string[];
 	/** Text to append to system prompt. */
 	appendSystemPrompt?: string;
@@ -64,7 +64,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 	const appendSection = appendSystemPrompt ? `\n\n${appendSystemPrompt}` : "";
 	const workModeSection =
 		workMode === "plan"
-			? "\n\n# Work Mode\n\nYou are in PLAN MODE. Research and planning only. Do not implement or modify project code. Use structured questions when clarification is required."
+			? "\n\n# Work Mode\n\nYou are in PLAN MODE. Research and planning only. Do not implement or modify project code. Use the ask tool when structured clarification is required."
 			: "\n\n# Work Mode\n\nYou are in BUILD MODE. Execute the requested implementation when appropriate.";
 
 	const contextFiles = providedContextFiles ?? [];
@@ -106,7 +106,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 	const examplesPath = getExamplesPath();
 
 	// Build tools list based on selected tools (only built-in tools with known descriptions)
-	const tools = (selectedTools || ["read", "bash", "edit", "write"]).filter((t) => t in toolDescriptions);
+	const tools = (selectedTools || ["read", "bash", "edit", "write", "ask"]).filter((t) => t in toolDescriptions);
 	const toolsList = tools.length > 0 ? tools.map((t) => `- ${t}: ${toolDescriptions[t]}`).join("\n") : "(none)";
 
 	// Build guidelines based on which tools are actually available

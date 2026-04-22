@@ -80,6 +80,8 @@ import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo, type SlashCommandLocatio
 import { buildSystemPrompt } from "./system-prompt.js";
 import type { BashOperations } from "./tools/bash.js";
 import { createAllTools } from "./tools/index.js";
+import { createEventBus, type EventBus } from "./event-bus.js";
+import { discoverAgents } from "./task/discovery.js";
 
 // ============================================================================
 // Skill Block Parsing
@@ -143,7 +145,7 @@ export interface AgentSessionConfig {
 	customTools?: ToolDefinition[];
 	/** Model registry for API key resolution and model discovery */
 	modelRegistry: ModelRegistry;
-	/** Initial active built-in tool names. Default: [read, bash, edit, write] */
+	/** Initial active built-in tool names. Default: [read, bash, edit, write, ask, task] */
 	initialActiveToolNames?: string[];
 	/** Override base tools (useful for custom runtimes). */
 	baseToolsOverride?: Record<string, AgentTool>;
@@ -208,8 +210,8 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 
 /** Thinking levels including xhigh (for supported models) */
 const THINKING_LEVELS_WITH_XHIGH: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-const PLAN_MODE_TOOL_NAMES = ["read", "grep", "find", "ls", "question", "plan_create", "implement"];
-const DEFAULT_BUILD_MODE_TOOL_NAMES = ["read", "bash", "edit", "write"];
+const PLAN_MODE_TOOL_NAMES = ["read", "grep", "find", "ls", "ask", "task", "plan_create", "implement"];
+const DEFAULT_BUILD_MODE_TOOL_NAMES = ["read", "bash", "edit", "write", "ask", "task"];
 
 // ============================================================================
 // AgentSession Class
@@ -278,6 +280,7 @@ export class AgentSession {
 	private _workMode: WorkMode = "build";
 	private _buildModeToolSnapshot: string[] | undefined = undefined;
 	private _pendingAutoImplementMessage: string | undefined = undefined;
+	private _taskEventBus: EventBus = createEventBus();
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -305,6 +308,10 @@ export class AgentSession {
 	/** Model registry for API key resolution and model discovery */
 	get modelRegistry(): ModelRegistry {
 		return this._modelRegistry;
+	}
+
+	get taskEventBus(): EventBus {
+		return this._taskEventBus;
 	}
 
 	// =========================================================================
@@ -690,6 +697,10 @@ export class AgentSession {
 	/** File-based prompt templates */
 	get promptTemplates(): ReadonlyArray<PromptTemplate> {
 		return this._resourceLoader.getPrompts().prompts;
+	}
+
+	async listTaskAgents() {
+		return (await discoverAgents(this._cwd)).agents;
 	}
 
 	private _rebuildSystemPrompt(toolNames: string[]): string {
@@ -1833,6 +1844,7 @@ export class AgentSession {
 	}
 
 	async bindExtensions(bindings: ExtensionBindings): Promise<void> {
+		const hadUIContext = !!this._extensionUIContext;
 		if (bindings.uiContext !== undefined) {
 			this._extensionUIContext = bindings.uiContext;
 		}
@@ -1844,6 +1856,16 @@ export class AgentSession {
 		}
 		if (bindings.onError !== undefined) {
 			this._extensionErrorListener = bindings.onError;
+		}
+
+		const hasUIContext = !!this._extensionUIContext;
+		if (hadUIContext !== hasUIContext) {
+			this._buildRuntime({
+				activeToolNames:
+					this._initialActiveToolNames ??
+					(this._workMode === "plan" ? PLAN_MODE_TOOL_NAMES : DEFAULT_BUILD_MODE_TOOL_NAMES),
+				includeAllExtensionTools: true,
+			});
 		}
 
 		if (this._extensionRunner) {
@@ -2061,35 +2083,26 @@ export class AgentSession {
 							},
 						},
 					},
-					question: {
-						operations: {
-							askQuestion: async (question, options, allowCustom) => {
-								const ui = this._extensionUIContext;
-								if (!ui) {
-									throw new Error("Question tool requires an interactive UI context.");
-								}
-								const choices = [...options];
-								if (allowCustom) {
-									choices.push("Own answer");
-								}
-								const selected = await ui.select(question, choices);
-								if (!selected) {
-									throw new Error("Question was cancelled by user.");
-								}
-								const selectedIndex = options.findIndex((o) => o === selected);
-								if (selectedIndex >= 0) {
-									return { answer: selected, selectedIndex, isCustom: false };
-								}
-								if (!allowCustom) {
-									throw new Error("Custom answers are disabled for this question.");
-								}
-								const custom = await ui.input(question, "Type your answer");
-								if (!custom?.trim()) {
-									throw new Error("No answer provided.");
-								}
-								return { answer: custom.trim(), isCustom: true };
-							},
+					ask: {
+						hasUI: !!this._extensionUIContext,
+						ui: this._extensionUIContext,
+						getPlanModeState: () => ({ enabled: this._workMode === "plan" }),
+						getTimeoutMs: () => {
+							const timeoutSeconds = this.settingsManager.getAskTimeoutSeconds();
+							return timeoutSeconds <= 0 ? null : timeoutSeconds * 1000;
 						},
+						abortTurn: () => {
+							void this.abort();
+						},
+					},
+					task: {
+						cwd: this._cwd,
+						model: this.model,
+						modelRegistry: this._modelRegistry,
+						settingsManager: this.settingsManager,
+						resourceLoader: this._resourceLoader,
+						taskEventBus: this._taskEventBus,
+						listTaskAgents: () => this.listTaskAgents(),
 					},
 				});
 

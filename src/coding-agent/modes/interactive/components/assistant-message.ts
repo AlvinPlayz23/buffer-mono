@@ -1,6 +1,8 @@
 import type { AssistantMessage } from "#buffer-ai";
 import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "#buffer-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
+import { ErrorCallout } from "./error-callout.js";
+import { ThinkingFrame } from "./thinking-frame.js";
 
 /**
  * Component that renders a complete assistant message
@@ -76,13 +78,15 @@ export class AssistantMessageComponent extends Container {
 						this.contentContainer.addChild(new Spacer(1));
 					}
 				} else {
-					// Thinking traces in thinkingText color, italic
-					this.contentContainer.addChild(
-						new Markdown(content.thinking.trim(), 1, 0, this.markdownTheme, {
+					// Thinking traces in soft open frame
+					const frame = new ThinkingFrame((s) => theme.fg("thinkingText", s));
+					frame.addChild(
+						new Markdown(content.thinking.trim(), 0, 0, this.markdownTheme, {
 							color: (text: string) => theme.fg("thinkingText", text),
 							italic: true,
 						}),
 					);
+					this.contentContainer.addChild(frame);
 					if (hasVisibleContentAfter) {
 						this.contentContainer.addChild(new Spacer(1));
 					}
@@ -99,16 +103,12 @@ export class AssistantMessageComponent extends Container {
 					message.errorMessage && message.errorMessage !== "Request was aborted"
 						? message.errorMessage
 						: "Operation aborted";
-				if (hasVisibleContent) {
-					this.contentContainer.addChild(new Spacer(1));
-				} else {
-					this.contentContainer.addChild(new Spacer(1));
-				}
-				this.contentContainer.addChild(new Text(theme.fg("error", abortMessage), 1, 0));
+				this.contentContainer.addChild(new Spacer(1));
+				this.contentContainer.addChild(new ErrorCallout("abort", abortMessage, (s) => theme.fg("error", s)));
 			} else if (message.stopReason === "error") {
 				const errorMsg = message.errorMessage || "Unknown error";
 				this.contentContainer.addChild(new Spacer(1));
-				this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), 1, 0));
+				this.contentContainer.addChild(new ErrorCallout("error", errorMsg, (s) => theme.fg("error", s)));
 			}
 		}
 	}

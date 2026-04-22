@@ -42,6 +42,18 @@ export interface MarkdownSettings {
 	codeBlockIndent?: string; // default: "  "
 }
 
+export interface AskSettings {
+	timeout?: number; // default: 30 seconds, 0 disables timeout
+}
+
+export interface TaskSettings {
+	maxConcurrency?: number;
+	maxRecursionDepth?: number;
+	showProgress?: boolean;
+	maxOutputBytes?: number;
+	maxOutputLines?: number;
+}
+
 /**
  * Package source for npm/git packages.
  * - String form: load all resources from the package
@@ -88,6 +100,8 @@ export interface Settings {
 	autocompleteMaxVisible?: number; // Max visible items in autocomplete dropdown (default: 5)
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
+	ask?: AskSettings;
+	tasks?: TaskSettings;
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -775,5 +789,29 @@ export class SettingsManager {
 
 	getCodeBlockIndent(): string {
 		return this.settings.markdown?.codeBlockIndent ?? "  ";
+	}
+
+	getAskTimeoutSeconds(): number {
+		return this.settings.ask?.timeout ?? 30;
+	}
+
+	getTaskMaxConcurrency(): number {
+		return this.settings.tasks?.maxConcurrency ?? 3;
+	}
+
+	getTaskMaxRecursionDepth(): number {
+		return this.settings.tasks?.maxRecursionDepth ?? 2;
+	}
+
+	getTaskShowProgress(): boolean {
+		return this.settings.tasks?.showProgress ?? true;
+	}
+
+	getTaskMaxOutputBytes(): number {
+		return this.settings.tasks?.maxOutputBytes ?? 500000;
+	}
+
+	getTaskMaxOutputLines(): number {
+		return this.settings.tasks?.maxOutputLines ?? 5000;
 	}
 }

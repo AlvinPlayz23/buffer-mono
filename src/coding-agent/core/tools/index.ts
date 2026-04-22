@@ -55,12 +55,13 @@ export {
 	readTool,
 } from "./read.js";
 export {
-	createQuestionTool,
-	type QuestionOperations,
-	type QuestionToolDetails,
-	type QuestionToolInput,
-	type QuestionToolOptions,
-} from "./question.js";
+	AskTool,
+	createAskTool,
+	type AskToolDetails,
+	type AskToolInput,
+	type AskToolSession,
+	askToolRenderer,
+} from "./ask.js";
 export {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -84,8 +85,10 @@ export {
 	type WriteToolOptions,
 	writeTool,
 } from "./write.js";
+export { createTaskTool, type TaskToolSession } from "../task/index.js";
 
 import type { AgentTool } from "#buffer-agent-core";
+import { createTaskTool, type TaskToolSession } from "../task/index.js";
 import { type BashToolOptions, bashTool, createBashTool } from "./bash.js";
 import { createEditTool, editTool } from "./edit.js";
 import { createFindTool, findTool } from "./find.js";
@@ -93,7 +96,7 @@ import { createGrepTool, grepTool } from "./grep.js";
 import { createImplementTool, type ImplementToolOptions } from "./implement.js";
 import { createLsTool, lsTool } from "./ls.js";
 import { createPlanCreateTool } from "./plan-create.js";
-import { createQuestionTool, type QuestionToolOptions } from "./question.js";
+import { createAskTool, type AskToolSession } from "./ask.js";
 import { createReadTool, type ReadToolOptions, readTool } from "./read.js";
 import { createWriteTool, writeTool } from "./write.js";
 
@@ -122,14 +125,32 @@ export const allTools = {
 			},
 		},
 	}),
-	question: createQuestionTool({
-		operations: {
-			askQuestion: async () => {
-				throw new Error("Question tool is not available in this runtime.");
-			},
+	ask: createAskTool({ hasUI: false }),
+	plan_create: createPlanCreateTool({ cwd: process.cwd() }),
+	task: createTaskTool({
+		cwd: process.cwd(),
+		model: undefined,
+		modelRegistry: undefined,
+		settingsManager: {
+			getTaskMaxConcurrency: () => 3,
+			getTaskMaxRecursionDepth: () => 2,
+			getTaskShowProgress: () => true,
+			getTaskMaxOutputBytes: () => 500000,
+			getTaskMaxOutputLines: () => 5000,
+		},
+		resourceLoader: {
+			getExtensions: () => ({ extensions: [], errors: [], runtime: {} as any }),
+			getSkills: () => ({ skills: [], diagnostics: [] }),
+			getPrompts: () => ({ prompts: [], diagnostics: [] }),
+			getThemes: () => ({ themes: [], diagnostics: [] }),
+			getAgentsFiles: () => ({ agentsFiles: [] }),
+			getSystemPrompt: () => undefined,
+			getAppendSystemPrompt: () => [],
+			getPathMetadata: () => new Map(),
+			extendResources: () => undefined,
+			reload: async () => undefined,
 		},
 	}),
-	plan_create: createPlanCreateTool({ cwd: process.cwd() }),
 };
 
 export type ToolName = keyof typeof allTools;
@@ -139,10 +160,12 @@ export interface ToolsOptions {
 	read?: ReadToolOptions;
 	/** Options for the bash tool */
 	bash?: BashToolOptions;
-	/** Options for the question tool */
-	question?: QuestionToolOptions;
+	/** Options for the ask tool */
+	ask?: AskToolSession;
 	/** Options for the implement tool */
 	implement?: ImplementToolOptions;
+	/** Task tool session */
+	task?: TaskToolSession;
 }
 
 /**
@@ -185,15 +208,33 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 				},
 			},
 		),
-		question: createQuestionTool(
-			options?.question ?? {
-				operations: {
-					askQuestion: async () => {
-						throw new Error("Question tool is not available in this runtime.");
-					},
+		ask: createAskTool(options?.ask ?? { hasUI: false }) as AgentTool,
+		plan_create: createPlanCreateTool({ cwd }),
+		task: createTaskTool(
+			options?.task ?? {
+				cwd,
+				model: undefined,
+				modelRegistry: undefined,
+				settingsManager: {
+					getTaskMaxConcurrency: () => 3,
+					getTaskMaxRecursionDepth: () => 2,
+					getTaskShowProgress: () => true,
+					getTaskMaxOutputBytes: () => 500000,
+					getTaskMaxOutputLines: () => 5000,
+				},
+				resourceLoader: {
+					getExtensions: () => ({ extensions: [], errors: [], runtime: {} as any }),
+					getSkills: () => ({ skills: [], diagnostics: [] }),
+					getPrompts: () => ({ prompts: [], diagnostics: [] }),
+					getThemes: () => ({ themes: [], diagnostics: [] }),
+					getAgentsFiles: () => ({ agentsFiles: [] }),
+					getSystemPrompt: () => undefined,
+					getAppendSystemPrompt: () => [],
+					getPathMetadata: () => new Map(),
+					extendResources: () => undefined,
+					reload: async () => undefined,
 				},
 			},
 		),
-		plan_create: createPlanCreateTool({ cwd }),
 	};
 }

@@ -19,7 +19,7 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "../../../core/
 import { convertToPng } from "../../../utils/image-convert.js";
 import { sanitizeBinaryOutput } from "../../../utils/shell.js";
 import { getLanguageFromPath, highlightCode, theme } from "../theme/theme.js";
-import { DynamicBorder } from "./dynamic-border.js";
+import { ToolPill } from "./tool-pill.js";
 import { renderDiff } from "./diff.js";
 import { keyHint } from "./keybinding-hints.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
@@ -63,8 +63,7 @@ export interface ToolExecutionOptions {
 export class ToolExecutionComponent extends Container {
 	private contentBox: Box; // Used for custom tools and bash visual truncation
 	private contentText: Text; // For built-in tools (with its own padding/bg)
-	private topBorder: DynamicBorder;
-	private bottomBorder: DynamicBorder;
+	private toolPill: ToolPill;
 	private imageComponents: Image[] = [];
 	private imageSpacers: Spacer[] = [];
 	private toolName: string;
@@ -113,13 +112,12 @@ export class ToolExecutionComponent extends Container {
 		this.cwd = cwd;
 
 		this.addChild(new Spacer(1));
-		this.topBorder = new DynamicBorder((text) => this.getBorderColor()(text));
-		this.bottomBorder = new DynamicBorder((text) => this.getBorderColor()(text));
-		this.addChild(this.topBorder);
+		this.toolPill = new ToolPill(toolName, (text) => this.getBorderColor()(text));
+		this.addChild(this.toolPill);
 
 		// Always create both - contentBox for custom tools/bash, contentText for other built-ins
-		this.contentBox = new Box(1, 1);
-		this.contentText = new Text("", 1, 1);
+		this.contentBox = new Box(1, 0);
+		this.contentText = new Text("", 1, 0);
 
 		// Use contentBox for bash (visual truncation) or custom tools with custom renderers
 		// Use contentText for built-in tools (including overrides without custom renderers)
@@ -128,7 +126,6 @@ export class ToolExecutionComponent extends Container {
 		} else {
 			this.addChild(this.contentText);
 		}
-		this.addChild(this.bottomBorder);
 
 		this.updateDisplay();
 	}
@@ -262,7 +259,7 @@ export class ToolExecutionComponent extends Container {
 			} else {
 				// Other built-in tools: use Text directly with caching
 				this.contentText.setCustomBgFn(undefined);
-				this.contentText.setText(theme.fg("muted", stripAnsi(this.formatToolExecution())));
+				this.contentText.setText(this.formatToolExecution());
 			}
 		} else if (this.toolDefinition) {
 			// Custom tools use Box for flexible component rendering
@@ -362,10 +359,10 @@ export class ToolExecutionComponent extends Container {
 		const command = str(this.args?.command);
 		const timeout = this.args?.timeout as number | undefined;
 
-		// Header
+		// Show command inline on the pill
 		const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
 		const commandDisplay = command === null ? "[invalid arg]" : command || "...";
-		this.contentBox.addChild(new Text(theme.fg("muted", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix, 0, 0));
+		this.toolPill.setSuffix(theme.fg("muted", commandDisplay) + timeoutSuffix);
 
 		if (this.result) {
 			const output = this.getTextOutput().trim();
@@ -471,58 +468,19 @@ export class ToolExecutionComponent extends Container {
 			const offset = this.args?.offset;
 			const limit = this.args?.limit;
 
-			let pathDisplay = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
+			let pathSuffix = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
 			if (offset !== undefined || limit !== undefined) {
 				const startLine = offset ?? 1;
 				const endLine = limit !== undefined ? startLine + limit - 1 : "";
-				pathDisplay += theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
+				pathSuffix += theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 			}
+			this.toolPill.setSuffix(pathSuffix);
 
-			text = `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}`;
-
-			if (this.result) {
-				const output = this.getTextOutput();
-				const rawPath = str(this.args?.file_path ?? this.args?.path);
-				const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
-				const lines = lang ? highlightCode(replaceTabs(output), lang) : output.split("\n");
-
-				const maxLines = this.expanded ? lines.length : 10;
-				const displayLines = lines.slice(0, maxLines);
-				const remaining = lines.length - maxLines;
-
-				text +=
-					"\n\n" +
-					displayLines
-						.map((line: string) => (lang ? replaceTabs(line) : theme.fg("toolOutput", replaceTabs(line))))
-						.join("\n");
-				if (remaining > 0) {
-					text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
-				}
-
-				const truncation = this.result.details?.truncation;
-				if (truncation?.truncated) {
-					if (truncation.firstLineExceedsLimit) {
-						text +=
-							"\n" +
-							theme.fg(
-								"warning",
-								`[First line exceeds ${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit]`,
-							);
-					} else if (truncation.truncatedBy === "lines") {
-						text +=
-							"\n" +
-							theme.fg(
-								"warning",
-								`[Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines (${truncation.maxLines ?? DEFAULT_MAX_LINES} line limit)]`,
-							);
-					} else {
-						text +=
-							"\n" +
-							theme.fg(
-								"warning",
-								`[Truncated: ${truncation.outputLines} lines shown (${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit)]`,
-							);
-					}
+			// Show error if tool execution failed, but skip file content preview
+			if (this.result?.isError) {
+				const errorText = this.getTextOutput();
+				if (errorText) {
+					text += theme.fg("error", errorText);
 				}
 			}
 		} else if (this.toolName === "write") {
@@ -530,18 +488,14 @@ export class ToolExecutionComponent extends Container {
 			const fileContent = str(this.args?.content);
 			const path = rawPath !== null ? shortenPath(rawPath) : null;
 
-			text =
-				theme.fg("toolTitle", theme.bold("write")) +
-				" " +
-				(path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "..."));
+			this.toolPill.setSuffix(path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "..."));
 
 			if (fileContent === null) {
 				text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
 			} else if (fileContent) {
 				const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
 				const lines = lang ? highlightCode(replaceTabs(fileContent), lang) : fileContent.split("\n");
-				const totalLines = lines.length;
-				const maxLines = this.expanded ? lines.length : 10;
+				const maxLines = this.expanded ? lines.length : 5;
 				const displayLines = lines.slice(0, maxLines);
 				const remaining = lines.length - maxLines;
 
@@ -551,13 +505,11 @@ export class ToolExecutionComponent extends Container {
 						.map((line: string) => (lang ? replaceTabs(line) : theme.fg("toolOutput", replaceTabs(line))))
 						.join("\n");
 				if (remaining > 0) {
-					text +=
-						theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total,`) +
-						` ${keyHint("expandTools", "to expand")})`;
+					text += `\n${theme.fg("muted", `... ${remaining} more lines`)}`;
 				}
 			}
 
-			// Show error if tool execution failed
+			// Show error if tool execution failed, but skip file content preview
 			if (this.result?.isError) {
 				const errorText = this.getTextOutput();
 				if (errorText) {
@@ -568,18 +520,17 @@ export class ToolExecutionComponent extends Container {
 			const rawPath = str(this.args?.file_path ?? this.args?.path);
 			const path = rawPath !== null ? shortenPath(rawPath) : null;
 
-			// Build path display, appending :line if we have diff info
-			let pathDisplay = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
+			// Build path suffix, appending :line if we have diff info
+			let pathSuffix = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
 			const firstChangedLine =
 				(this.editDiffPreview && "firstChangedLine" in this.editDiffPreview
 					? this.editDiffPreview.firstChangedLine
 					: undefined) ||
 				(this.result && !this.result.isError ? this.result.details?.firstChangedLine : undefined);
 			if (firstChangedLine) {
-				pathDisplay += theme.fg("warning", `:${firstChangedLine}`);
+				pathSuffix += theme.fg("warning", `:${firstChangedLine}`);
 			}
-
-			text = `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
+			this.toolPill.setSuffix(pathSuffix);
 
 			if (this.result?.isError) {
 				// Show error from result
@@ -605,10 +556,11 @@ export class ToolExecutionComponent extends Container {
 			const path = rawPath !== null ? shortenPath(rawPath || ".") : null;
 			const limit = this.args?.limit;
 
-			text = `${theme.fg("toolTitle", theme.bold("ls"))} ${path === null ? invalidArg : theme.fg("accent", path)}`;
+			let lsSuffix = path === null ? invalidArg : theme.fg("accent", path);
 			if (limit !== undefined) {
-				text += theme.fg("toolOutput", ` (limit ${limit})`);
+				lsSuffix += theme.fg("toolOutput", ` (limit ${limit})`);
 			}
+			this.toolPill.setSuffix(lsSuffix);
 
 			if (this.result) {
 				const output = this.getTextOutput().trim();
@@ -643,14 +595,13 @@ export class ToolExecutionComponent extends Container {
 			const path = rawPath !== null ? shortenPath(rawPath || ".") : null;
 			const limit = this.args?.limit;
 
-			text =
-				theme.fg("toolTitle", theme.bold("find")) +
-				" " +
+			let findSuffix =
 				(pattern === null ? invalidArg : theme.fg("accent", pattern || "")) +
 				theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
 			if (limit !== undefined) {
-				text += theme.fg("toolOutput", ` (limit ${limit})`);
+				findSuffix += theme.fg("toolOutput", ` (limit ${limit})`);
 			}
+			this.toolPill.setSuffix(findSuffix);
 
 			if (this.result) {
 				const output = this.getTextOutput().trim();
@@ -686,17 +637,16 @@ export class ToolExecutionComponent extends Container {
 			const glob = str(this.args?.glob);
 			const limit = this.args?.limit;
 
-			text =
-				theme.fg("toolTitle", theme.bold("grep")) +
-				" " +
+			let grepSuffix =
 				(pattern === null ? invalidArg : theme.fg("accent", `/${pattern || ""}/`)) +
 				theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
 			if (glob) {
-				text += theme.fg("toolOutput", ` (${glob})`);
+				grepSuffix += theme.fg("toolOutput", ` (${glob})`);
 			}
 			if (limit !== undefined) {
-				text += theme.fg("toolOutput", ` limit ${limit}`);
+				grepSuffix += theme.fg("toolOutput", ` limit ${limit}`);
 			}
+			this.toolPill.setSuffix(grepSuffix);
 
 			if (this.result) {
 				const output = this.getTextOutput().trim();
@@ -728,6 +678,41 @@ export class ToolExecutionComponent extends Container {
 					}
 					text += `\n${theme.fg("warning", `[Truncated: ${warnings.join(", ")}]`)}`;
 				}
+			}
+		} else if (this.toolName === "task") {
+			const agent = str(this.args?.agent);
+			if (agent) {
+				this.toolPill.setSuffix(theme.fg("accent", agent));
+			}
+
+			const details = this.result?.details;
+			const progress = Array.isArray(details?.progress) ? details.progress : [];
+			if (progress.length > 0) {
+				const rows = progress.map((item: any) => {
+					const symbol =
+						item.status === "completed"
+							? theme.fg("success", "✓")
+							: item.status === "failed"
+								? theme.fg("error", "!")
+								: item.status === "aborted"
+									? theme.fg("warning", "×")
+									: item.status === "running"
+										? theme.fg("accent", "•")
+										: theme.fg("dim", "·");
+					const label = typeof item.description === "string" && item.description ? item.description : item.id;
+					const tool = typeof item.currentTool === "string" ? ` · ${item.currentTool}` : "";
+					const seconds =
+						typeof item.durationMs === "number" && item.durationMs > 0
+							? ` · ${Math.ceil(item.durationMs / 1000)}s`
+							: "";
+					return `${symbol} ${theme.fg("muted", item.agent)} ${label}${theme.fg("dim", `${tool}${seconds}`)}`;
+				});
+				text += `\n\n${rows.join("\n")}`;
+			}
+
+			const output = this.getTextOutput().trim();
+			if (output) {
+				text += `\n\n${theme.fg("toolOutput", output)}`;
 			}
 		} else {
 			// Generic tool (shouldn't reach here for custom tools)
