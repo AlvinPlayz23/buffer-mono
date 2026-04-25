@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Markdown from "react-markdown";
 import { getDesktopApi } from "./lib/api";
 import { initialState, reduceEvent, type AppState } from "./lib/state";
 import type {
@@ -11,18 +10,17 @@ import type {
   ProjectMeta,
   ProjectItem
 } from "./types/acp";
+import { PrimaryRail } from "./components/PrimaryRail";
+import { SessionsPanel } from "./components/SessionsPanel";
+import { Workspace } from "./components/Workspace";
+import { Composer } from "./components/Composer";
+import { SettingsModal } from "./components/SettingsModal";
+import { PermissionModal } from "./components/PermissionModal";
 
 const api = getDesktopApi();
 
 type RememberMap = Record<string, string>;
 type PreWarmedThread = { projectId: string; sessionId: string; used: boolean };
-
-const THEMES = [
-  { id: "midnight", name: "Midnight", icon: "🌙" },
-  { id: "dawn", name: "Dawn", icon: "🌅" },
-  { id: "forest", name: "Forest", icon: "🌲" },
-  { id: "arctic", name: "Arctic", icon: "❄" }
-] as const;
 
 function formatProjectName(path: string): string {
   const normalized = path.replace(/\\/g, "/");
@@ -42,6 +40,7 @@ export function App() {
   const [threads, setThreads] = useState<ThreadItem[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>("");
   const [activeThreadId, setActiveThreadId] = useState("");
+  const [sessionsPanelOpen, setSessionsPanelOpen] = useState(false);
 
   const [promptInput, setPromptInput] = useState("");
   const [rememberChoice, setRememberChoice] = useState(false);
@@ -265,6 +264,17 @@ export function App() {
     }
   }
 
+  async function toggleProjectInRail(projectId: string) {
+    if (sessionsPanelOpen && projectId === activeProjectId) {
+      setSessionsPanelOpen(false);
+      return;
+    }
+    setSessionsPanelOpen(true);
+    if (projectId !== activeProjectId) {
+      await openProject(projectId);
+    }
+  }
+
   async function createProject() {
     const picked = await api.pickFolder();
     const path = String(picked?.path || "").trim();
@@ -275,9 +285,25 @@ export function App() {
     try {
       const created = await api.createProject({ path, name: formatProjectName(path) });
       await refreshProjects();
+      setSessionsPanelOpen(true);
       await openProject(created.projectId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startNewThread() {
+    const project = projects.find((t) => t.id === activeProjectId);
+    if (!project) return;
+    setError("");
+    setBusy(true);
+    try {
+      await cleanupUnusedPreWarmedThread("");
+      await createThreadForProject(project);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start thread");
     } finally {
       setBusy(false);
     }
@@ -391,6 +417,10 @@ export function App() {
     setAcpStatus("disconnected");
   }
 
+  function stopPrompt() {
+    if (activeThreadId) void api.cancel({ sessionId: activeThreadId });
+  }
+
   async function respondPermission(option: PermissionOption | null, forceCancelled = false) {
     const permissionRequest = state.permissionRequest;
     if (!permissionRequest) return;
@@ -491,6 +521,7 @@ export function App() {
       const threadData = await refreshProjects();
       if (threadData.activeProjectId && threadData.projects.some((t) => t.id === threadData.activeProjectId)) {
         await openProject(threadData.activeProjectId);
+        setSessionsPanelOpen(true);
       }
     })();
 
@@ -520,471 +551,121 @@ export function App() {
     void api.setProjectMeta(activeProjectId, payload);
   }, [activeProjectId, state.availableCommands, state.modes, state.currentModeId, state.models, state.currentModelId]);
 
-  const activeProject = projects.find((t) => t.id === activeProjectId);
+  const activeProject = projects.find((t) => t.id === activeProjectId) || null;
+  const breadcrumb = activeProject
+    ? `project: ${activeProject.name.toLowerCase().replace(/\s+/g, "-")}`
+    : "ready";
 
   return (
-    <div className="project-layout">
-      <aside className="project-sidebar">
-        <div className="sidebar-header">
-          <span className="sidebar-brand">Buffer</span>
-          <span className={`status-dot ${acpStatus}`} title={acpStatus} />
-        </div>
-        <button className="btn btn-new-project" onClick={createProject} disabled={busy}>
-          <span className="btn-icon">+</span> New project
-        </button>
-        <div className="project-sidebar-title">PROJECTS</div>
-        <ul className="project-list">
-          {projects.map((project) => (
-            <li key={project.id}>
-              <button
-                className={`project-item ${project.id === activeProjectId ? "active" : ""}`}
-                onClick={() => openProject(project.id)}
-              >
-                <span className="project-folder">{project.name}</span>
-                <span className="project-path">{project.path}</span>
-              </button>
-              {project.id === activeProjectId && threads.length > 0 && (
-                <ul className="thread-list">
-                  {threads.map((thread) => (
-                    <li key={thread.id}>
-                      <button
-                        className={`thread-item ${thread.id === activeThreadId ? "active" : ""}`}
-                        disabled={busy}
-                        onClick={async () => {
-                          if (busy || thread.id === activeThreadId) return;
-                          setBusy(true);
-                          setError("");
-                          try {
-                            await loadThreadForProject(project, thread.id);
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : "Failed to load thread");
-                          } finally {
-                            setBusy(false);
-                          }
-                        }}
-                      >
-                        {thread.title || "Untitled thread"}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
-      </aside>
+    <div className="t3-shell">
+      <PrimaryRail
+        projects={projects}
+        activeProjectId={activeProjectId}
+        panelOpen={sessionsPanelOpen}
+        busy={busy}
+        onToggleProject={(id) => void toggleProjectInRail(id)}
+        onNewProject={() => void createProject()}
+        onOpenSettings={() => setShowSettings(true)}
+      />
 
-      <main className="app-shell">
-        <header className="chat-header">
-          <div className="chat-title">
-            <h1>{activeProject?.name || "Buffer"}</h1>
-          </div>
+      <SessionsPanel
+        open={sessionsPanelOpen}
+        project={activeProject}
+        threads={threads}
+        activeThreadId={activeThreadId}
+        busy={busy}
+        onSelectThread={async (threadId) => {
+          if (!activeProject || busy || threadId === activeThreadId) return;
+          setBusy(true);
+          setError("");
+          try {
+            await loadThreadForProject(activeProject, threadId);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to load thread");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        onNewThread={() => void startNewThread()}
+      />
 
-          <div className="chat-controls">
-            <button className="btn-icon-only" onClick={() => setShowSettings(true)} title="Settings">⚙</button>
-          </div>
-        </header>
+      <main className="t3-main">
+        <Workspace
+          project={activeProject}
+          acpStatus={acpStatus}
+          messages={state.messages}
+          activeToolCalls={activeToolCalls}
+          recentToolCalls={recentToolCalls}
+          chatEndRef={chatEndRef}
+          onConnect={() => void connectAndInitialize()}
+          busy={busy}
+          acpBreadcrumb={breadcrumb}
+        />
 
-        <main className="chat-main">
-          {state.messages.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-logo-glow">
-                <div className="empty-logo">⚡</div>
-              </div>
-              <h2>What shall we build?</h2>
-              <h3>{activeProject?.name || "Select a project to start"}</h3>
-              <div className="suggestion-grid">
-                {[
-                  { text: "Create a classic snake game", icon: "🎮" },
-                  { text: "Find and fix a bug in my code", icon: "🔍" },
-                  { text: "Summarize this app in a short doc", icon: "📄" }
-                ].map((idea) => (
-                  <button
-                    key={idea.text}
-                    className="suggestion-card"
-                    onClick={() => setPromptInput(idea.text)}
-                    disabled={!activeProjectId || busy || isSending}
-                  >
-                    <span className="suggestion-icon">{idea.icon}</span>
-                    <span>{idea.text}</span>
-                  </button>
-                ))}
-              </div>
-              {acpStatus !== "connected" && (
-                <div className="empty-actions">
-                  <button className="btn btn-primary" onClick={connectAndInitialize} disabled={busy}>
-                    {acpStatus === "starting" ? "Connecting…" : "Start ACP"}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeToolCalls.length > 0 && (
-            <section className="tool-indicator-strip">
-              {activeToolCalls.map((tool) => (
-                <article key={tool.toolCallId} className={`tool-pill ${tool.status || "pending"}`}>
-                  <span className="tool-dot" />
-                  <strong>{tool.title || tool.kind || "Tool call"}</strong>
-                  <span>{tool.status === "in_progress" ? "Running" : "Pending"}</span>
-                </article>
-              ))}
-            </section>
-          )}
-
-          {state.messages.map((message, idx) => (
-            <article key={`${message.role}-${idx}`} className={`chat-row ${message.role}`}>
-              {message.role === "user" ? (
-                <div className="chat-bubble">
-                  <pre>{message.text}</pre>
-                </div>
-              ) : (
-                <div className={`chat-flat ${message.role}`}>
-                  <div className="chat-role">{message.role}</div>
-                  <Markdown>{message.text}</Markdown>
-                </div>
-              )}
-            </article>
-          ))}
-
-          {state.messages.length > 0 && recentToolCalls.length > 0 && (
-            <section className="tool-call-feed">
-              {recentToolCalls.map((tool) => (
-                <article key={`feed-${tool.toolCallId}`} className={`tool-feed-card ${tool.status || "pending"}`}>
-                  <header>
-                    <strong>{tool.title || tool.toolCallId}</strong>
-                    <span>{tool.status || "pending"}</span>
-                  </header>
-                  <p>{tool.kind || "other"}</p>
-                </article>
-              ))}
-            </section>
-          )}
-
-          <div ref={chatEndRef} />
-        </main>
-
-        <footer className="composer-wrap">
-          <div className="composer-box">
-            {showSlashMenu && filteredSlashCommands.length > 0 && (
-              <div className="slash-menu">
-                {filteredSlashCommands.map((cmd, idx) => (
-                  <button
-                    key={cmd.name}
-                    className={`slash-menu-item ${idx === slashSelectedIdx ? "active" : ""}`}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      insertSlashCommand(cmd.name);
-                    }}
-                    onMouseEnter={() => setSlashSelectedIdx(idx)}
-                  >
-                    <strong>/{cmd.name}</strong>
-                    {cmd.description && <span>{cmd.description}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-            <textarea
-              ref={textareaRef}
-              placeholder={activeProjectId ? "Message Buffer… Type / for commands" : "Select a project to start…"}
-              value={promptInput}
-              disabled={isSending || !activeProjectId}
-              onChange={(e) => handlePromptChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (showSlashMenu && filteredSlashCommands.length > 0) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSlashSelectedIdx((i) => (i + 1) % filteredSlashCommands.length);
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSlashSelectedIdx((i) => (i - 1 + filteredSlashCommands.length) % filteredSlashCommands.length);
-                    return;
-                  }
-                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-                    e.preventDefault();
-                    insertSlashCommand(filteredSlashCommands[slashSelectedIdx].name);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setShowSlashMenu(false);
-                    return;
-                  }
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void sendPrompt();
-                }
-              }}
-              onBlur={() => setTimeout(() => setShowSlashMenu(false), 150)}
-            />
-            <div className="composer-footer">
-              <div className="composer-meta">
-                <select
-                  className="composer-select"
-                  aria-label="Model"
-                  value={selectedModelId || state.currentModelId}
-                  onChange={(e) => {
-                    if (e.target.value) void changeModel(e.target.value);
-                  }}
-                >
-                  <option value="" disabled>Select model…</option>
-                  {state.models.map((model) => (
-                    <option key={model.modelId} value={model.modelId}>
-                      {model.name || model.modelId}
-                    </option>
-                  ))}
-                  {state.models.length === 0 && (
-                    <option value="" disabled>No models available</option>
-                  )}
-                </select>
-                <select
-                  className="composer-select"
-                  aria-label="Mode"
-                  value={state.currentModeId}
-                  onChange={(e) => {
-                    if (e.target.value) void changeMode(e.target.value);
-                  }}
-                >
-                  <option value="" disabled>Select mode…</option>
-                  {state.modes.map((mode) => (
-                    <option key={mode.id} value={mode.id}>
-                      {mode.name}
-                    </option>
-                  ))}
-                  {state.modes.length === 0 && (
-                    <option value="" disabled>No modes available</option>
-                  )}
-                </select>
-              </div>
-              <div className="composer-actions">
-                {isSending && (
-                  <button className="btn btn-sm" onClick={() => activeThreadId && api.cancel({ sessionId: activeThreadId })}>
-                    Stop
-                  </button>
-                )}
-                <button className="btn btn-primary btn-sm btn-send" onClick={sendPrompt} disabled={!canSend}>
-                  {isSending ? (
-                    <span className="btn-loading">
-                      <span className="spinner" />
-                    </span>
-                  ) : (
-                    "↵"
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </footer>
-
-        {showSettings && (
-          <div className="settings-overlay" onClick={() => setShowSettings(false)}>
-            <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-              <header className="settings-header">
-                <h2>Settings</h2>
-                <button className="btn-icon-only" onClick={() => setShowSettings(false)}>✕</button>
-              </header>
-
-              <div className="settings-body">
-                <div className="settings-grid">
-                  <section className="settings-section">
-                    <h3>Theme</h3>
-                    <div className="theme-picker">
-                      {THEMES.map((t) => (
-                        <button
-                          key={t.id}
-                          className={`theme-chip ${theme === t.id ? "active" : ""}`}
-                          onClick={() => setTheme(t.id)}
-                        >
-                          <span>{t.icon}</span>
-                          <span>{t.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="settings-section">
-                    <div className="settings-section-head">
-                      <h3>ACP Connection</h3>
-                      <span className={`status-pill ${acpStatus}`}>{acpStatus}</span>
-                    </div>
-                    <label>
-                      Working directory
-                      <input
-                        value={settings.cwd}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, cwd: e.target.value }))}
-                      />
-                    </label>
-                    <label className="checkbox-inline">
-                      <input
-                        type="checkbox"
-                        checked={settings.autoAllow}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, autoAllow: e.target.checked }))}
-                      />
-                      Auto-allow permissions
-                    </label>
-                    <label className="checkbox-inline">
-                      <input
-                        type="checkbox"
-                        checked={settings.autoStartAcp}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, autoStartAcp: e.target.checked }))}
-                      />
-                      Auto-start ACP on launch
-                    </label>
-                    <div className="row-actions">
-                      <button className="btn btn-primary" disabled={busy} onClick={connectAndInitialize}>
-                        {acpStatus === "connected" ? "Reconnect" : "Start ACP"}
-                      </button>
-                      <button className="btn" onClick={() => void stopAcp()} disabled={busy || acpStatus === "disconnected"}>Stop</button>
-                    </div>
-                    <div className="row-actions">
-                      <button
-                        className="btn"
-                        onClick={async () => {
-                          const saved = await api.saveSettings(settings);
-                          setSettings(saved);
-                        }}
-                      >
-                        Save Settings
-                      </button>
-                    </div>
-                  </section>
-                </div>
-
-                <div className="settings-grid">
-                  <details className="settings-section">
-                    <summary>Slash Commands</summary>
-                    <ul className="cmd-list">
-                      {state.availableCommands.map((cmd) => (
-                        <li key={cmd.name}>
-                          <strong>/{cmd.name}</strong>
-                          {cmd.description && <span>{cmd.description}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-
-                  <details className="settings-section">
-                    <summary>Tool Calls ({toolCalls.length})</summary>
-                    {toolCalls.map((tool) => (
-                      <article key={tool.toolCallId} className="drawer-card">
-                        <header>
-                          <strong>{tool.title || tool.toolCallId}</strong>
-                          <span className={`tool-status-badge ${tool.status || "pending"}`}>{tool.status || "pending"}</span>
-                        </header>
-                        <p>{tool.kind || "other"}</p>
-                        {tool.content !== undefined && tool.content !== null && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
-                      </article>
-                    ))}
-                  </details>
-                </div>
-
-                <div className="settings-grid">
-                  <details className="settings-section">
-                    <summary>Plan</summary>
-                    <ol className="plan-list">
-                      {state.plan.map((entry, idx) => (
-                        <li key={`${entry.content}-${idx}`} className={`plan-item ${entry.status || "pending"}`}>
-                          {entry.content}
-                        </li>
-                      ))}
-                    </ol>
-                  </details>
-
-                  <details className="settings-section">
-                    <summary>Logs</summary>
-                    <div className="drawer-logs">
-                      {state.logs.map((line, idx) => (
-                        <pre key={`${line}-${idx}`}>{line}</pre>
-                      ))}
-                    </div>
-                  </details>
-                </div>
-
-                <div className="settings-grid">
-                  <details className="settings-section">
-                    <summary>Tasks ({Object.keys(state.taskProgress).length})</summary>
-                    {Object.values(state.taskProgress).map((task) => (
-                      <article key={task.taskId} className="drawer-card">
-                        <header>
-                          <strong>{task.agent || task.taskId}</strong>
-                          <span className={`tool-status-badge ${task.status}`}>{task.status}</span>
-                        </header>
-                        <p>{task.taskId}</p>
-                        {task.currentTool && <p>Tool: {task.currentTool}</p>}
-                        {typeof task.elapsedSeconds === "number" && <p>Elapsed: {task.elapsedSeconds}s</p>}
-                      </article>
-                    ))}
-                  </details>
-
-                  <details className="settings-section">
-                    <summary>Changes ({state.changeTree.length})</summary>
-                    {state.changeTree.map((change, idx) => (
-                      <article key={`${change.path}-${idx}`} className="drawer-card">
-                        <header>
-                          <strong>{change.path}</strong>
-                          <span className={`tool-status-badge ${change.type}`}>{change.type}</span>
-                        </header>
-                        <p>
-                          +{change.additions ?? 0} / -{change.deletions ?? 0}
-                        </p>
-                      </article>
-                    ))}
-                  </details>
-                </div>
-
-                <div className="settings-grid">
-                  <details className="settings-section">
-                    <summary>Context</summary>
-                    {state.contextUsage ? (
-                      <article className="drawer-card">
-                        <p>Percent: {state.contextUsage.percent ?? "unknown"}</p>
-                        <p>Window: {state.contextUsage.contextWindow}</p>
-                        <p>Input: {state.contextUsage.input}</p>
-                        <p>Output: {state.contextUsage.output}</p>
-                        <p>Cost: {state.contextUsage.cost}</p>
-                      </article>
-                    ) : (
-                      <p>No context usage reported yet.</p>
-                    )}
-                  </details>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="error-toast" onClick={() => setError("")}>
-            {error}
-            <button className="error-dismiss">&times;</button>
-          </div>
-        )}
-
-        {state.permissionRequest && (
-          <div className="modal">
-            <div className="modal-card">
-              <h3>Permission Request</h3>
-              <p className="perm-title">{state.permissionRequest.title || "Tool execution request"}</p>
-              <p className="perm-kind">{state.permissionRequest.toolKind || "other"}</p>
-              <div className="row-actions">
-                {state.permissionRequest.options.map((option) => (
-                  <button className="btn" key={option.optionId} onClick={() => void respondPermission(option)}>
-                    {option.name}
-                  </button>
-                ))}
-                <button className="btn" onClick={() => void respondPermission(null, true)}>Cancel</button>
-              </div>
-              <label className="checkbox-inline">
-                <input type="checkbox" checked={rememberChoice} onChange={(e) => setRememberChoice(e.target.checked)} />
-                Remember for this tool kind (thread)
-              </label>
-            </div>
-          </div>
-        )}
+        <Composer
+          textareaRef={textareaRef}
+          promptInput={promptInput}
+          onPromptChange={handlePromptChange}
+          onSend={() => void sendPrompt()}
+          onStop={stopPrompt}
+          canSend={canSend}
+          isSending={isSending}
+          disabled={isSending || !activeProjectId}
+          placeholder={
+            activeProjectId
+              ? "Ask the agent to build, refactor, or test… (type / for commands)"
+              : "Select a project to start…"
+          }
+          showSlashMenu={showSlashMenu}
+          filteredSlashCommands={filteredSlashCommands}
+          slashSelectedIdx={slashSelectedIdx}
+          setSlashSelectedIdx={setSlashSelectedIdx}
+          insertSlashCommand={insertSlashCommand}
+          setShowSlashMenu={setShowSlashMenu}
+          models={state.models}
+          selectedModelId={selectedModelId || state.currentModelId}
+          onChangeModel={(id) => void changeModel(id)}
+          modes={state.modes}
+          currentModeId={state.currentModeId}
+          onChangeMode={(id) => void changeMode(id)}
+          supervised={!settings.autoAllow}
+          onToggleSupervised={() =>
+            setSettings((prev) => ({ ...prev, autoAllow: !prev.autoAllow }))
+          }
+        />
       </main>
+
+      <SettingsModal
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        state={state}
+        settings={settings}
+        setSettings={(updater) => setSettings((prev) => updater(prev))}
+        busy={busy}
+        acpStatus={acpStatus}
+        onConnect={() => void connectAndInitialize()}
+        onStop={() => void stopAcp()}
+        onSaveSettings={async () => {
+          const saved = await api.saveSettings(settings);
+          setSettings(saved);
+        }}
+        theme={theme}
+        setTheme={setTheme}
+      />
+
+      <PermissionModal
+        request={state.permissionRequest}
+        remember={rememberChoice}
+        setRemember={setRememberChoice}
+        onRespond={(opt, cancelled) => void respondPermission(opt, cancelled)}
+      />
+
+      {error && (
+        <div className="error-toast" onClick={() => setError("")}>
+          <span>{error}</span>
+          <button className="error-dismiss" type="button">×</button>
+        </div>
+      )}
     </div>
   );
 }
