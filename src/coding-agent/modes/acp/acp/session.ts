@@ -14,6 +14,7 @@ import { SessionStore } from './session-store.js'
 import { toolResultToText } from './translate/pi-tools.js'
 import { normalizePiAssistantText } from './translate/pi-messages.js'
 import { expandSlashCommand, type FileSlashCommand } from './slash-commands.js'
+import { discoverAgents } from '../../../core/task/discovery.js'
 
 type SessionCreateParams = {
   cwd: string
@@ -136,6 +137,17 @@ export class BufferAcpSession {
   // This is due to pi sending diff as a string as opposed to ACP expected diff format.
   // Compatible format may need to be implemented in pi in the future.
   private editSnapshots = new Map<string, { path: string; oldText: string }>()
+  private showChanges = true
+  private readonly taskProgress = new Map<
+    string,
+    {
+      taskId: string
+      agent: string
+      status: 'pending' | 'running' | 'completed' | 'failed' | 'aborted'
+      currentTool?: string
+      elapsedSeconds?: number
+    }
+  >()
 
   // Ensure `session/update` notifications are sent in order and can be awaited
   // before completing a `session/prompt` request.
@@ -250,6 +262,28 @@ export class BufferAcpSession {
 
   wasCancelRequested(): boolean {
     return this.cancelRequested
+  }
+
+  setChangeTreeEnabled(enabled: boolean): void {
+    this.showChanges = enabled
+  }
+
+  isChangeTreeEnabled(): boolean {
+    return this.showChanges
+  }
+
+  listTaskProgress(): Array<{
+    taskId: string
+    agent: string
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'aborted'
+    currentTool?: string
+    elapsedSeconds?: number
+  }> {
+    return Array.from(this.taskProgress.values())
+  }
+
+  async listTaskAgents() {
+    return (await discoverAgents(this.cwd)).agents
   }
 
   private emit(update: SessionUpdate): void {
@@ -527,6 +561,79 @@ export class BufferAcpSession {
 
         this.currentToolCalls.delete(toolCallId)
         this.editSnapshots.delete(toolCallId)
+        break
+      }
+
+      case 'task_progress': {
+        const taskId = String((ev as any).taskId ?? '')
+        if (!taskId) break
+        const status = String((ev as any).status ?? 'pending') as
+          | 'pending'
+          | 'running'
+          | 'completed'
+          | 'failed'
+          | 'aborted'
+        const next = {
+          taskId,
+          agent: String((ev as any).agent ?? ''),
+          status,
+          currentTool:
+            typeof (ev as any).currentTool === 'string' ? String((ev as any).currentTool) : undefined,
+          elapsedSeconds:
+            typeof (ev as any).elapsedSeconds === 'number' ? Number((ev as any).elapsedSeconds) : undefined
+        }
+        this.taskProgress.set(taskId, next)
+        this.emit({
+          sessionUpdate: 'task_progress',
+          ...next
+        })
+        break
+      }
+
+      case 'task_lifecycle': {
+        const taskId = String((ev as any).taskId ?? '')
+        if (!taskId) break
+        const transition = String((ev as any).transition ?? '') as 'start' | 'completed' | 'failed' | 'aborted'
+        const existing = this.taskProgress.get(taskId)
+        if (existing) {
+          existing.status =
+            transition === 'start'
+              ? existing.status
+              : transition === 'completed'
+                ? 'completed'
+                : transition === 'failed'
+                  ? 'failed'
+                  : 'aborted'
+          this.taskProgress.set(taskId, existing)
+        }
+        this.emit({
+          sessionUpdate: 'task_lifecycle',
+          taskId,
+          agent: String((ev as any).agent ?? existing?.agent ?? ''),
+          transition
+        })
+        break
+      }
+
+      case 'change_tree': {
+        const changes = Array.isArray((ev as any).changes) ? (ev as any).changes : []
+        if (!this.showChanges) break
+        this.emit({
+          sessionUpdate: 'change_tree',
+          changes
+        })
+        break
+      }
+
+      case 'context_usage': {
+        this.emit({
+          sessionUpdate: 'context_usage',
+          percent: (ev as any).percent ?? null,
+          contextWindow: Number((ev as any).contextWindow ?? 0),
+          input: Number((ev as any).input ?? 0),
+          output: Number((ev as any).output ?? 0),
+          cost: Number((ev as any).cost ?? 0)
+        })
         break
       }
 

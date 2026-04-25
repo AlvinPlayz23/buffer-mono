@@ -1,4 +1,12 @@
-import type { DesktopEvent, PermissionOption, SessionMessage, ToolCallEntry } from "../types/acp";
+import type {
+  ContextUsage,
+  DesktopEvent,
+  FileChangeEntry,
+  PermissionOption,
+  SessionMessage,
+  TaskProgressEntry,
+  ToolCallEntry
+} from "../types/acp";
 
 export interface PermissionRequestState {
   requestId: string;
@@ -15,6 +23,9 @@ export interface AppState {
   messages: SessionMessage[];
   toolCalls: Record<string, ToolCallEntry>;
   plan: Array<{ content: string; priority?: string; status?: string }>;
+  taskProgress: Record<string, TaskProgressEntry>;
+  changeTree: FileChangeEntry[];
+  contextUsage: ContextUsage | null;
   availableCommands: Array<{ name: string; description?: string }>;
   modes: Array<{ id: string; name: string; description?: string | null }>;
   currentModeId: string;
@@ -30,6 +41,9 @@ export const initialState: AppState = {
   messages: [],
   toolCalls: {},
   plan: [],
+  taskProgress: {},
+  changeTree: [],
+  contextUsage: null,
   availableCommands: [],
   modes: [],
   currentModeId: "",
@@ -138,7 +152,12 @@ export function reduceEvent(state: AppState, event: DesktopEvent): AppState {
             kind: typeof update.kind === "string" ? update.kind : undefined,
             status: update.status as ToolCallEntry["status"],
             content: update.content,
-            locations: update.locations
+            locations: update.locations,
+            diff: typeof update.diff === "string" ? update.diff : undefined,
+            rawInput:
+              typeof update.rawInput === "string" ? update.rawInput : update.rawInput !== undefined ? JSON.stringify(update.rawInput, null, 2) : undefined,
+            rawOutput:
+              typeof update.rawOutput === "string" ? update.rawOutput : update.rawOutput !== undefined ? JSON.stringify(update.rawOutput, null, 2) : undefined
           }
         }
       };
@@ -157,7 +176,20 @@ export function reduceEvent(state: AppState, event: DesktopEvent): AppState {
             kind: typeof update.kind === "string" ? update.kind : prior.kind,
             status: (update.status as ToolCallEntry["status"]) || prior.status,
             content: update.content ?? prior.content,
-            locations: update.locations ?? prior.locations
+            locations: update.locations ?? prior.locations,
+            diff: typeof update.diff === "string" ? update.diff : prior.diff,
+            rawInput:
+              typeof update.rawInput === "string"
+                ? update.rawInput
+                : update.rawInput !== undefined
+                  ? JSON.stringify(update.rawInput, null, 2)
+                  : prior.rawInput,
+            rawOutput:
+              typeof update.rawOutput === "string"
+                ? update.rawOutput
+                : update.rawOutput !== undefined
+                  ? JSON.stringify(update.rawOutput, null, 2)
+                  : prior.rawOutput
           }
         }
       };
@@ -171,6 +203,65 @@ export function reduceEvent(state: AppState, event: DesktopEvent): AppState {
           priority: typeof entry?.priority === "string" ? entry.priority : undefined,
           status: typeof entry?.status === "string" ? entry.status : undefined
         }))
+      };
+    }
+    case "task_progress": {
+      const taskId = String(update.taskId || "");
+      if (!taskId) return state;
+      return {
+        ...state,
+        taskProgress: {
+          ...state.taskProgress,
+          [taskId]: {
+            taskId,
+            agent: String(update.agent || ""),
+            status: (update.status as TaskProgressEntry["status"]) || "pending",
+            currentTool: typeof update.currentTool === "string" ? update.currentTool : undefined,
+            elapsedSeconds: typeof update.elapsedSeconds === "number" ? update.elapsedSeconds : undefined
+          }
+        }
+      };
+    }
+    case "task_lifecycle": {
+      const taskId = String(update.taskId || "");
+      if (!taskId) return state;
+      const existing = state.taskProgress[taskId];
+      if (!existing) return state;
+      const transition = String(update.transition || "");
+      const status =
+        transition === "completed" || transition === "failed" || transition === "aborted"
+          ? (transition as TaskProgressEntry["status"])
+          : existing.status;
+      return {
+        ...state,
+        taskProgress: {
+          ...state.taskProgress,
+          [taskId]: { ...existing, status }
+        }
+      };
+    }
+    case "change_tree": {
+      const changes = Array.isArray(update.changes) ? update.changes : [];
+      return {
+        ...state,
+        changeTree: changes.map((change: any) => ({
+          path: String(change?.path || ""),
+          type: change?.type === "edit" ? "edit" : "write",
+          additions: typeof change?.additions === "number" ? change.additions : undefined,
+          deletions: typeof change?.deletions === "number" ? change.deletions : undefined
+        }))
+      };
+    }
+    case "context_usage": {
+      return {
+        ...state,
+        contextUsage: {
+          percent: typeof update.percent === "number" ? update.percent : null,
+          contextWindow: Number(update.contextWindow) || 0,
+          input: Number(update.input) || 0,
+          output: Number(update.output) || 0,
+          cost: Number(update.cost) || 0
+        }
       };
     }
     case "available_commands_update": {

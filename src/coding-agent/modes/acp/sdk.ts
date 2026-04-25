@@ -32,7 +32,7 @@ export interface SessionUpdate {
 	sessionUpdate: string;
 	content?: ContentBlock | ToolCallContent | unknown;
 	toolCallId?: string;
-	status?: "pending" | "in_progress" | "completed" | "failed";
+	status?: "pending" | "in_progress" | "running" | "completed" | "failed" | "aborted";
 	availableCommands?: AvailableCommand[];
 	_meta?: Record<string, unknown>;
 	[key: string]: unknown;

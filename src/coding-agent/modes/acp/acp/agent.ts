@@ -73,6 +73,38 @@ function builtinAvailableCommands(): AvailableCommand[] {
       description: 'Toggle work mode between build and plan'
     },
     {
+      name: 'agents',
+      description: 'List available task agents'
+    },
+    {
+      name: 'tasks',
+      description: 'Show active task and subagent progress'
+    },
+    {
+      name: 'changes',
+      description: 'Toggle change tree updates for this ACP session',
+      input: { hint: 'on|off|toggle' }
+    },
+    {
+      name: 'name',
+      description: 'Rename the current session',
+      input: { hint: 'session title' }
+    },
+    {
+      name: 'new',
+      description: 'Start a new underlying session in the current ACP connection'
+    },
+    {
+      name: 'resume',
+      description: 'Resume a known session by id',
+      input: { hint: 'session id' }
+    },
+    {
+      name: 'model',
+      description: 'Set the current model',
+      input: { hint: 'provider/model or model id' }
+    },
+    {
       name: 'view',
       description: 'Interactive-only terminal view mode (not supported in ACP)'
     }
@@ -104,6 +136,29 @@ export class BufferAcpAgent implements ACPAgent {
   constructor(conn: AgentSideConnection, _config?: unknown) {
     this.conn = conn
     void _config
+  }
+
+  private async getAdvertisedCommands(
+    proc: BufferRpcProcess,
+    fileCommands: ReturnType<typeof loadSlashCommands>
+  ): Promise<AvailableCommand[]> {
+    const rpcCommands: AvailableCommand[] = []
+    try {
+      const result = (await proc.getCommands()) as any
+      const commands = Array.isArray(result?.commands) ? result.commands : []
+      for (const command of commands) {
+        const name = String(command?.name ?? '').trim()
+        if (!name) continue
+        rpcCommands.push({
+          name,
+          description: typeof command?.description === 'string' ? command.description : undefined
+        })
+      }
+    } catch {
+      // Fallback to adapter-discovered prompt files only.
+    }
+
+    return mergeCommands(mergeCommands(rpcCommands, toAvailableCommands(fileCommands)), builtinAvailableCommands())
   }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
@@ -174,13 +229,16 @@ export class BufferAcpAgent implements ACPAgent {
     // Important: some clients (e.g. Zed) will ignore notifications for an unknown sessionId.
     // So we must send this *after* the session/new response has been delivered.
     setTimeout(() => {
-      void this.conn.sessionUpdate({
-        sessionId: session.sessionId,
-        update: {
-          sessionUpdate: 'available_commands_update',
-          availableCommands: mergeCommands(toAvailableCommands(fileCommands), builtinAvailableCommands())
-        }
-      })
+      void (async () => {
+        const availableCommands = await this.getAdvertisedCommands(session.proc, fileCommands)
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'available_commands_update',
+            availableCommands
+          }
+        })
+      })()
     }, 0)
 
     return response
@@ -441,7 +499,7 @@ export class BufferAcpAgent implements ACPAgent {
       if (cmd === 'help') {
         const text = [
           'ACP mode supports core slash commands:',
-          '/compact, /autocompact, /export, /session, /steering, /follow-up, /changelog, /model, /thinking, /plan',
+          '/compact, /autocompact, /export, /session, /steering, /follow-up, /changelog, /model, /thinking, /plan, /agents, /tasks, /changes, /name, /new, /resume',
           '',
           'Interactive-only commands are not available in ACP.',
           'Bash input safety remains default-off in interactive mode (terminal.enableBashMode = false).',
@@ -467,6 +525,190 @@ export class BufferAcpAgent implements ACPAgent {
           update: {
             sessionUpdate: 'agent_message_chunk',
             content: { type: 'text', text: `Work mode set to: ${next}` }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'agents') {
+        const availableAgents = await session.listTaskAgents()
+        const text =
+          availableAgents.length > 0
+            ? availableAgents.map((agent: { name: string; description: string }) => `/${agent.name} - ${agent.description}`).join('\n')
+            : 'No task agents were discovered.'
+
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'tasks') {
+        const tasks = session.listTaskProgress()
+        const text =
+          tasks.length > 0
+            ? tasks
+                .map((task) => {
+                  const parts = [`${task.taskId}`, `[${task.status}]`, task.agent]
+                  if (task.currentTool) parts.push(`tool: ${task.currentTool}`)
+                  if (typeof task.elapsedSeconds === 'number') parts.push(`${task.elapsedSeconds}s`)
+                  return parts.join(' ')
+                })
+                .join('\n')
+            : 'No active task or subagent progress is being tracked.'
+
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'changes') {
+        const mode = String(args[0] ?? 'toggle').toLowerCase()
+        const enabled =
+          mode === 'on' || mode === 'true' || mode === 'enable'
+            ? true
+            : mode === 'off' || mode === 'false' || mode === 'disable'
+              ? false
+              : !session.isChangeTreeEnabled()
+        session.setChangeTreeEnabled(enabled)
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `Change tree updates ${enabled ? 'enabled' : 'disabled'}.` }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'name') {
+        const name = args.join(' ').trim()
+        if (!name) {
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: 'Usage: /name <session title>' }
+            }
+          })
+          return { stopReason: 'end_turn' }
+        }
+
+        await session.proc.setSessionName(name)
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `Session renamed to: ${name}` }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'model') {
+        const modelRef = args.join(' ').trim()
+        if (!modelRef) {
+          const models = await getModelState(session.proc)
+          const text =
+            models?.availableModels?.length
+              ? [
+                  `Current model: ${models.currentModelId}`,
+                  '',
+                  'Available models:',
+                  ...models.availableModels.map((model) => `- ${String(model.modelId ?? model.id ?? '')}`)
+                ].join('\n')
+              : 'No models available.'
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text }
+            }
+          })
+          return { stopReason: 'end_turn' }
+        }
+
+        await this.setSessionModel({ sessionId: session.sessionId, modelId: modelRef })
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `Model set to: ${modelRef}` }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'new') {
+        await session.proc.newSession()
+        const state = (await session.proc.getState()) as any
+        if (typeof state?.sessionId === 'string' && typeof state?.sessionFile === 'string') {
+          this.store.upsert({
+            sessionId: String(state.sessionId),
+            cwd: session.cwd,
+            sessionFile: String(state.sessionFile)
+          })
+        }
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: {
+              type: 'text',
+              text:
+                `Started a new underlying session.${state?.sessionId ? ` Buffer session id: ${String(state.sessionId)}` : ''}`
+            }
+          }
+        })
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'resume') {
+        const targetSessionId = args.join(' ').trim()
+        if (!targetSessionId) {
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: 'Usage: /resume <session id>' }
+            }
+          })
+          return { stopReason: 'end_turn' }
+        }
+        const stored = this.store.get(targetSessionId)
+        if (!stored?.sessionFile) {
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: `Unknown session id: ${targetSessionId}` }
+            }
+          })
+          return { stopReason: 'end_turn' }
+        }
+        await session.proc.switchSession(stored.sessionFile)
+        const state = (await session.proc.getState()) as any
+        if (typeof state?.sessionId === 'string' && typeof state?.sessionFile === 'string') {
+          this.store.upsert({
+            sessionId: String(state.sessionId),
+            cwd: stored.cwd,
+            sessionFile: String(state.sessionFile)
+          })
+        }
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `Resumed session: ${targetSessionId}` }
           }
         })
         return { stopReason: 'end_turn' }
@@ -739,13 +981,16 @@ export class BufferAcpAgent implements ACPAgent {
 
     // Advertise slash commands after the response so the client knows the session exists.
     setTimeout(() => {
-      void this.conn.sessionUpdate({
-        sessionId: session.sessionId,
-        update: {
-          sessionUpdate: 'available_commands_update',
-          availableCommands: mergeCommands(toAvailableCommands(fileCommands), builtinAvailableCommands())
-        }
-      })
+      void (async () => {
+        const availableCommands = await this.getAdvertisedCommands(proc, fileCommands)
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'available_commands_update',
+            availableCommands
+          }
+        })
+      })()
     }, 0)
 
     return response

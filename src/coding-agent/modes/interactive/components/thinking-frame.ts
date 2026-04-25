@@ -1,4 +1,4 @@
-import type { Component } from "#buffer-tui";
+import { truncateToWidth, type Component } from "#buffer-tui";
 
 /**
  * Wraps child components in a soft open frame for thinking blocks.
@@ -30,15 +30,15 @@ export class ThinkingFrame implements Component {
 		const contentWidth = Math.max(1, width - 2);
 		const lines: string[] = [];
 
-		lines.push(this.colorFn("╭─ thinking"));
+		lines.push(truncateToWidth(this.colorFn("╭─ thinking"), width, ""));
 
 		for (const child of this.children) {
 			for (const line of child.render(contentWidth)) {
-				lines.push("  " + line);
+				lines.push(truncateToWidth(`  ${line}`, width, ""));
 			}
 		}
 
-		lines.push(this.colorFn("╰─"));
+		lines.push(truncateToWidth(this.colorFn("╰─"), width, ""));
 
 		return lines;
 	}

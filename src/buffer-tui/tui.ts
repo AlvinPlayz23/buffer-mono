@@ -1064,13 +1064,13 @@ export class TUI extends Container {
 		for (let i = firstChanged; i <= renderEnd; i++) {
 			if (i > firstChanged) buffer += "\r\n";
 			buffer += "\x1b[2K"; // Clear current line
-			const line = newLines[i];
+			let line = newLines[i];
 			const isImage = isImageLine(line);
 			if (!isImage && visibleWidth(line) > width) {
 				// Log all lines to crash file for debugging
 				const crashLogPath = path.join(os.homedir(), ".pi", "agent", "pi-crash.log");
 				const crashData = [
-					`Crash at ${new Date().toISOString()}`,
+					`Overflow at ${new Date().toISOString()}`,
 					`Terminal width: ${width}`,
 					`Line ${i} visible width: ${visibleWidth(line)}`,
 					"",
@@ -1080,19 +1080,8 @@ export class TUI extends Container {
 				].join("\n");
 				fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
 				fs.writeFileSync(crashLogPath, crashData);
-
-				// Clean up terminal state before throwing
-				this.stop();
-
-				const errorMsg = [
-					`Rendered line ${i} exceeds terminal width (${visibleWidth(line)} > ${width}).`,
-					"",
-					"This is likely caused by a custom TUI component not truncating its output.",
-					"Use visibleWidth() to measure and truncateToWidth() to truncate lines.",
-					"",
-					`Debug log written to: ${crashLogPath}`,
-				].join("\n");
-				throw new Error(errorMsg);
+				line = sliceByColumn(line, 0, width, true);
+				newLines[i] = line;
 			}
 			buffer += line;
 		}

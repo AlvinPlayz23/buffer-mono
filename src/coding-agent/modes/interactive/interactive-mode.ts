@@ -242,7 +242,6 @@ export class InteractiveMode {
 	// Change tree state
 	private showChanges = true;
 	private currentTurnChanges: FileChange[] = [];
-	private pendingToolArgs = new Map<string, { toolName: string; args: any }>();
 
 	// Auto-compaction state
 	private autoCompactionLoader: Loader | undefined = undefined;
@@ -2290,10 +2289,6 @@ export class InteractiveMode {
 					this.pendingTools.set(event.toolCallId, component);
 					this.ui.requestRender();
 				}
-				// Track args for change tree
-				if (event.toolName === "write" || event.toolName === "edit") {
-					this.pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
-				}
 				break;
 			}
 
@@ -2313,23 +2308,12 @@ export class InteractiveMode {
 					this.pendingTools.delete(event.toolCallId);
 					this.ui.requestRender();
 				}
-				// Track file changes for change tree
-				const trackedTool = this.pendingToolArgs.get(event.toolCallId);
-				if (trackedTool && !event.isError) {
-					const filePath = trackedTool.args?.path || "";
-					if (filePath) {
-						const details = event.result?.details;
-						this.currentTurnChanges.push({
-							path: filePath,
-							type: trackedTool.toolName as "write" | "edit",
-							additions: details?.additions,
-							deletions: details?.deletions,
-						});
-					}
-					this.pendingToolArgs.delete(event.toolCallId);
-				}
 				break;
 			}
+
+			case "change_tree":
+				this.currentTurnChanges = Array.isArray(event.changes) ? event.changes : [];
+				break;
 
 			case "agent_end":
 				if (this.loadingAnimation) {
@@ -2343,7 +2327,6 @@ export class InteractiveMode {
 					this.streamingMessage = undefined;
 				}
 				this.pendingTools.clear();
-				this.pendingToolArgs.clear();
 
 				// Show change tree if enabled and there were file changes
 				if (this.showChanges && this.currentTurnChanges.length > 0) {

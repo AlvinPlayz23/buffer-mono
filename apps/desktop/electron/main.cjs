@@ -6,6 +6,18 @@ const { homedir } = require("node:os");
 const { createHash } = require("node:crypto");
 
 const ROOT_DIR = resolve(__dirname, "..");
+const WORKSPACE_ROOT = resolve(ROOT_DIR, "..", "..");
+
+function quotePath(value) {
+  return `"${String(value).replace(/"/g, '\\"')}"`;
+}
+
+function getDefaultAcpLaunchCommand() {
+  if (!app.isPackaged) {
+    return `pnpm --dir ${quotePath(WORKSPACE_ROOT)} exec node dist/coding-agent/cli.js --acp`;
+  }
+  return "buffer --acp";
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -316,21 +328,13 @@ function loadSettings() {
   const settingsPath = getSettingsPath();
   if (!existsSync(settingsPath)) {
     return {
-      acpLaunchCommand: "buffer --acp",
       cwd: process.cwd(),
       autoAllow: false,
       autoStartAcp: true
     };
   }
   const parsed = safeJsonParse(readFileSync(settingsPath, "utf8"));
-  const migratedLaunchCommand =
-    typeof parsed?.acpLaunchCommand === "string"
-      ? parsed.acpLaunchCommand
-      : typeof parsed?.acpCommand === "string"
-        ? `${parsed.acpCommand} ${typeof parsed?.acpArgs === "string" ? parsed.acpArgs : "--acp"}`
-        : "buffer --acp";
   return {
-    acpLaunchCommand: migratedLaunchCommand.trim(),
     cwd: process.cwd(),
     autoAllow: false,
     autoStartAcp: true,
@@ -339,9 +343,13 @@ function loadSettings() {
 }
 
 function saveSettings(next) {
+  const { acpLaunchCommand, acpCommand, acpArgs, ...rest } = next || {};
+  void acpLaunchCommand;
+  void acpCommand;
+  void acpArgs;
   const settingsPath = getSettingsPath();
-  writeFileSync(settingsPath, JSON.stringify(next, null, 2));
-  return next;
+  writeFileSync(settingsPath, JSON.stringify(rest, null, 2));
+  return rest;
 }
 
 function emptyData() {
@@ -490,6 +498,7 @@ function upsertProjectMeta(data, projectId, meta) {
 const rpc = new JsonRpcStdioClient();
 let mainWindow = null;
 let acpInitialized = false;
+let lastInitializeResult = null;
 
 function sendEventToRenderer(event) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -503,23 +512,29 @@ rpc.onEvent((event) => {
   }
   if (event.type === "disconnected" || event.type === "stopped") {
     acpInitialized = false;
+    lastInitializeResult = null;
     sendEventToRenderer({ type: "acp_status_update", status: "disconnected" });
     return;
   }
   sendEventToRenderer(event);
 });
 
-async function ensureAcpStarted() {
-  if (rpc.isRunning() && acpInitialized) return;
+async function ensureAcpStarted(initializeParams) {
+  if (rpc.isRunning() && acpInitialized) return null;
   const settings = loadSettings();
+  const launchCommand = getDefaultAcpLaunchCommand();
 
   if (!rpc.isRunning()) {
     sendEventToRenderer({ type: "acp_status_update", status: "starting" });
-    rpc.start({ launchCommand: settings.acpLaunchCommand, cwd: settings.cwd || process.cwd() });
+    rpc.start({ launchCommand, cwd: settings.cwd || process.cwd() });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    if (!rpc.isRunning()) {
+      throw new Error(`ACP failed to start with launch command: ${launchCommand}`);
+    }
   }
 
   if (!acpInitialized) {
-    await rpc.request("initialize", {
+    const result = await rpc.request("initialize", initializeParams || {
       protocolVersion: 1,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
@@ -532,8 +547,12 @@ async function ensureAcpStarted() {
       }
     });
     acpInitialized = true;
+    lastInitializeResult = result;
     sendEventToRenderer({ type: "acp_status_update", status: "connected" });
+    return result;
   }
+
+  return null;
 }
 
 function createWindow() {
@@ -713,21 +732,28 @@ ipcMain.handle("prefs:set-project-meta", async (_event, params) => {
 });
 
 ipcMain.handle("acp:start", async (_event, config) => {
-  rpc.start(config);
+  rpc.start({ launchCommand: getDefaultAcpLaunchCommand(), cwd: config?.cwd });
   acpInitialized = false;
+  lastInitializeResult = null;
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  if (!rpc.isRunning()) {
+    const launchCommand = getDefaultAcpLaunchCommand();
+    throw new Error(`ACP failed to start with launch command: ${launchCommand}`);
+  }
   return { ok: true };
 });
 
 ipcMain.handle("acp:stop", async () => {
   rpc.stop();
   acpInitialized = false;
+  lastInitializeResult = null;
   return { ok: true };
 });
 
 ipcMain.handle("acp:initialize", async (_event, params) => {
-  const result = await rpc.request("initialize", params);
-  acpInitialized = true;
-  return result;
+  const result = await ensureAcpStarted(params);
+  if (result) return result;
+  return lastInitializeResult || { protocolVersion: 1 };
 });
 
 ipcMain.handle("acp:new-session", async (_event, params) => {

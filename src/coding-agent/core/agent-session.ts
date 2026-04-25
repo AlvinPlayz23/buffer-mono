@@ -82,6 +82,12 @@ import type { BashOperations } from "./tools/bash.js";
 import { createAllTools } from "./tools/index.js";
 import { createEventBus, type EventBus } from "./event-bus.js";
 import { discoverAgents } from "./task/discovery.js";
+import {
+	TASK_SUBAGENT_LIFECYCLE_CHANNEL,
+	TASK_SUBAGENT_PROGRESS_CHANNEL,
+	type SubagentLifecyclePayload,
+	type SubagentProgressPayload,
+} from "./task/types.js";
 
 // ============================================================================
 // Skill Block Parsing
@@ -123,7 +129,33 @@ export type AgentSessionEvent =
 	  }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
-	| { type: "work_mode_change"; mode: WorkMode };
+	| { type: "work_mode_change"; mode: WorkMode }
+	| {
+			type: "task_progress";
+			taskId: string;
+			agent: string;
+			status: "pending" | "running" | "completed" | "failed" | "aborted";
+			currentTool?: string;
+			elapsedSeconds?: number;
+	  }
+	| {
+			type: "task_lifecycle";
+			taskId: string;
+			agent: string;
+			transition: "start" | "completed" | "failed" | "aborted";
+	  }
+	| {
+			type: "change_tree";
+			changes: Array<{ path: string; type: "write" | "edit"; additions?: number; deletions?: number }>;
+	  }
+	| {
+			type: "context_usage";
+			percent: number | null;
+			contextWindow: number;
+			input: number;
+			output: number;
+			cost: number;
+	  };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -197,6 +229,13 @@ export interface SessionStats {
 		total: number;
 	};
 	cost: number;
+}
+
+interface FileChange {
+	path: string;
+	type: "write" | "edit";
+	additions?: number;
+	deletions?: number;
 }
 
 export type WorkMode = "build" | "plan";
@@ -281,6 +320,9 @@ export class AgentSession {
 	private _buildModeToolSnapshot: string[] | undefined = undefined;
 	private _pendingAutoImplementMessage: string | undefined = undefined;
 	private _taskEventBus: EventBus = createEventBus();
+	private _currentTurnChanges: FileChange[] = [];
+	private _pendingToolArgs = new Map<string, { toolName: string; args: any }>();
+	private _taskProgressById = new Map<string, AgentSessionEvent & { type: "task_progress" }>();
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -298,6 +340,12 @@ export class AgentSession {
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
+		this._taskEventBus.on(TASK_SUBAGENT_PROGRESS_CHANNEL, (payload) => {
+			this._handleTaskProgress(payload as SubagentProgressPayload);
+		});
+		this._taskEventBus.on(TASK_SUBAGENT_LIFECYCLE_CHANNEL, (payload) => {
+			this._handleTaskLifecycle(payload as SubagentLifecyclePayload);
+		});
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
@@ -323,6 +371,58 @@ export class AgentSession {
 		for (const l of this._eventListeners) {
 			l(event);
 		}
+	}
+
+	private _handleTaskProgress(payload: SubagentProgressPayload): void {
+		if (!payload || typeof payload !== "object") return;
+		const taskId = String(payload.progress?.id ?? payload.index ?? "");
+		if (!taskId) return;
+		const event: Extract<AgentSessionEvent, { type: "task_progress" }> = {
+			type: "task_progress",
+			taskId,
+			agent: String(payload.agent || payload.progress?.agent || ""),
+			status: payload.progress?.status ?? "pending",
+			currentTool: payload.progress?.currentTool,
+			elapsedSeconds:
+				typeof payload.progress?.durationMs === "number" ? Math.max(0, Math.round(payload.progress.durationMs / 1000)) : undefined,
+		};
+		this._taskProgressById.set(taskId, event);
+		this._emit(event);
+	}
+
+	private _handleTaskLifecycle(payload: SubagentLifecyclePayload): void {
+		if (!payload || typeof payload !== "object") return;
+		const taskId = String(payload.id || payload.index || "");
+		if (!taskId) return;
+		const transition =
+			payload.status === "started"
+				? "start"
+				: payload.status === "completed"
+					? "completed"
+					: payload.status === "failed"
+						? "failed"
+						: "aborted";
+		const current = this._taskProgressById.get(taskId);
+		const nextStatus = transition === "start" ? current?.status ?? "running" : transition;
+		this._taskProgressById.set(taskId, {
+			type: "task_progress",
+			taskId,
+			agent: String(payload.agent || current?.agent || ""),
+			status: nextStatus,
+			currentTool: current?.currentTool,
+			elapsedSeconds: current?.elapsedSeconds,
+		});
+		this._emit({
+			type: "task_lifecycle",
+			taskId,
+			agent: String(payload.agent || current?.agent || ""),
+			transition,
+		});
+	}
+
+	private _resetTurnTracking(): void {
+		this._currentTurnChanges = [];
+		this._pendingToolArgs.clear();
 	}
 
 	// Track last assistant message for auto-compaction check
@@ -355,6 +455,31 @@ export class AgentSession {
 		// Notify all listeners
 		this._emit(event);
 
+		if (event.type === "tool_execution_start") {
+			if (event.toolName === "write" || event.toolName === "edit") {
+				this._pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
+			}
+		}
+
+		if (event.type === "tool_execution_end") {
+			const trackedTool = this._pendingToolArgs.get(event.toolCallId);
+			if (trackedTool) {
+				this._pendingToolArgs.delete(event.toolCallId);
+				if (!event.isError) {
+					const filePath = trackedTool.args?.path;
+					if (typeof filePath === "string" && filePath.length > 0) {
+						const details = (event.result as any)?.details;
+						this._currentTurnChanges.push({
+							path: filePath,
+							type: trackedTool.toolName as "write" | "edit",
+							additions: typeof details?.additions === "number" ? details.additions : undefined,
+							deletions: typeof details?.deletions === "number" ? details.deletions : undefined,
+						});
+					}
+				}
+			}
+		}
+
 		// Handle session persistence
 		if (event.type === "message_end") {
 			// Check if this is a custom message from extensions
@@ -379,6 +504,17 @@ export class AgentSession {
 			// Track assistant message for auto-compaction (checked on agent_end)
 			if (event.message.role === "assistant") {
 				this._lastAssistantMessage = event.message;
+				const contextUsage = this.getContextUsage();
+				if (contextUsage) {
+					this._emit({
+						type: "context_usage",
+						percent: contextUsage.percent,
+						contextWindow: contextUsage.contextWindow,
+						input: event.message.usage?.input ?? 0,
+						output: event.message.usage?.output ?? 0,
+						cost: event.message.usage?.cost?.total ?? 0,
+					});
+				}
 
 				// Reset retry counter immediately on successful assistant response
 				// This prevents accumulation across multiple LLM calls within a turn
@@ -397,6 +533,11 @@ export class AgentSession {
 
 		// Check auto-retry and auto-compaction after agent completes
 		if (event.type === "agent_end") {
+			this._emit({
+				type: "change_tree",
+				changes: this._currentTurnChanges.map((change) => ({ ...change })),
+			});
+			this._resetTurnTracking();
 			// If plan mode requested immediate implementation, run that now in build mode.
 			// This prevents the implementation prompt from being queued as a follow-up.
 			if (await this._runPendingAutoImplementIfAny()) {
@@ -1237,6 +1378,8 @@ export class AgentSession {
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 		this._pendingNextTurnMessages = [];
+		this._taskProgressById.clear();
+		this._resetTurnTracking();
 
 		this.sessionManager.appendThinkingLevelChange(this.thinkingLevel);
 
@@ -2483,6 +2626,8 @@ export class AgentSession {
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 		this._pendingNextTurnMessages = [];
+		this._taskProgressById.clear();
+		this._resetTurnTracking();
 
 		// Set new session
 		this.sessionManager.setSessionFile(sessionPath);

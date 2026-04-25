@@ -10,6 +10,7 @@ import type { ImageContent, Model } from "#buffer-ai";
 import type { SessionStats } from "../../core/agent-session.js";
 import type { BashResult } from "../../core/bash-executor.js";
 import type { CompactionResult } from "../../core/compaction/index.js";
+import type { AgentSessionEvent } from "../../core/agent-session.js";
 
 // ============================================================================
 // RPC Commands (stdin)
@@ -264,3 +265,5 @@ export type RpcExtensionUIResponse =
 // ============================================================================
 
 export type RpcCommandType = RpcCommand["type"];
+
+export type RpcEvent = AgentSessionEvent;

@@ -33,10 +33,41 @@ export interface ToolCallEntry {
   status?: "pending" | "in_progress" | "completed" | "failed";
   content?: unknown;
   locations?: unknown;
+  diff?: string;
+  rawInput?: string;
+  rawOutput?: string;
+}
+
+export interface TaskProgressEntry {
+  taskId: string;
+  agent: string;
+  status: "pending" | "running" | "completed" | "failed" | "aborted";
+  currentTool?: string;
+  elapsedSeconds?: number;
+}
+
+export interface TaskLifecycleEntry {
+  taskId: string;
+  agent: string;
+  transition: "start" | "completed" | "failed" | "aborted";
+}
+
+export interface FileChangeEntry {
+  path: string;
+  type: "write" | "edit";
+  additions?: number;
+  deletions?: number;
+}
+
+export interface ContextUsage {
+  percent: number | null;
+  contextWindow: number;
+  input: number;
+  output: number;
+  cost: number;
 }
 
 export interface AppSettings {
-  acpLaunchCommand: string;
   cwd: string;
   autoAllow: boolean;
   autoStartAcp: boolean;
@@ -106,7 +137,7 @@ export interface DesktopApi {
   setProjectMeta(projectId: string, meta: Partial<ProjectMeta>): Promise<{ ok: true }>;
 
   getAcpStatus(): Promise<{ status: "connected" | "starting" | "disconnected" }>;
-  start(config: { launchCommand: string; cwd: string }): Promise<{ ok: true }>;
+  start(config: { cwd: string }): Promise<{ ok: true }>;
   stop(): Promise<{ ok: true }>;
   initialize(params: {
     protocolVersion: number;

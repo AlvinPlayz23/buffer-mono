@@ -33,7 +33,6 @@ function formatProjectName(path: string): string {
 export function App() {
   const [state, setState] = useState<AppState>(initialState);
   const [settings, setSettings] = useState<AppSettings>({
-    acpLaunchCommand: "buffer --acp",
     cwd: "",
     autoAllow: false,
     autoStartAcp: true
@@ -115,6 +114,9 @@ export function App() {
       messages: [],
       toolCalls: {},
       plan: [],
+      taskProgress: {},
+      changeTree: [],
+      contextUsage: null,
       availableCommands: [],
       modes: [],
       currentModeId: "",
@@ -286,7 +288,7 @@ export function App() {
     setBusy(true);
     setAcpStatus("starting");
     try {
-      await api.start({ launchCommand: settings.acpLaunchCommand, cwd: settings.cwd || "" });
+      await api.start({ cwd: settings.cwd || "" });
       const initialized = await api.initialize({
         protocolVersion: 1,
         clientCapabilities: {
@@ -809,13 +811,6 @@ export function App() {
                       <span className={`status-pill ${acpStatus}`}>{acpStatus}</span>
                     </div>
                     <label>
-                      Launch command
-                      <input
-                        value={settings.acpLaunchCommand}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, acpLaunchCommand: e.target.value }))}
-                      />
-                    </label>
-                    <label>
                       Working directory
                       <input
                         value={settings.cwd}
@@ -905,6 +900,55 @@ export function App() {
                         <pre key={`${line}-${idx}`}>{line}</pre>
                       ))}
                     </div>
+                  </details>
+                </div>
+
+                <div className="settings-grid">
+                  <details className="settings-section">
+                    <summary>Tasks ({Object.keys(state.taskProgress).length})</summary>
+                    {Object.values(state.taskProgress).map((task) => (
+                      <article key={task.taskId} className="drawer-card">
+                        <header>
+                          <strong>{task.agent || task.taskId}</strong>
+                          <span className={`tool-status-badge ${task.status}`}>{task.status}</span>
+                        </header>
+                        <p>{task.taskId}</p>
+                        {task.currentTool && <p>Tool: {task.currentTool}</p>}
+                        {typeof task.elapsedSeconds === "number" && <p>Elapsed: {task.elapsedSeconds}s</p>}
+                      </article>
+                    ))}
+                  </details>
+
+                  <details className="settings-section">
+                    <summary>Changes ({state.changeTree.length})</summary>
+                    {state.changeTree.map((change, idx) => (
+                      <article key={`${change.path}-${idx}`} className="drawer-card">
+                        <header>
+                          <strong>{change.path}</strong>
+                          <span className={`tool-status-badge ${change.type}`}>{change.type}</span>
+                        </header>
+                        <p>
+                          +{change.additions ?? 0} / -{change.deletions ?? 0}
+                        </p>
+                      </article>
+                    ))}
+                  </details>
+                </div>
+
+                <div className="settings-grid">
+                  <details className="settings-section">
+                    <summary>Context</summary>
+                    {state.contextUsage ? (
+                      <article className="drawer-card">
+                        <p>Percent: {state.contextUsage.percent ?? "unknown"}</p>
+                        <p>Window: {state.contextUsage.contextWindow}</p>
+                        <p>Input: {state.contextUsage.input}</p>
+                        <p>Output: {state.contextUsage.output}</p>
+                        <p>Cost: {state.contextUsage.cost}</p>
+                      </article>
+                    ) : (
+                      <p>No context usage reported yet.</p>
+                    )}
                   </details>
                 </div>
               </div>

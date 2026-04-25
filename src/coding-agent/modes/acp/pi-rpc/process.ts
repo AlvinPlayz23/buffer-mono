@@ -17,10 +17,13 @@ type BufferRpcCommand =
 	| { type: "set_work_mode"; id?: string; mode: "build" | "plan" }
 	| { type: "compact"; id?: string; customInstructions?: string }
 	| { type: "set_auto_compaction"; id?: string; enabled: boolean }
+	| { type: "new_session"; id?: string; parentSession?: string }
 	| { type: "get_session_stats"; id?: string }
 	| { type: "export_html"; id?: string; outputPath?: string }
 	| { type: "switch_session"; id?: string; sessionPath: string }
-	| { type: "get_messages"; id?: string };
+	| { type: "get_messages"; id?: string }
+	| { type: "set_session_name"; id?: string; name: string }
+	| { type: "get_commands"; id?: string };
 
 type BufferRpcResponse = {
 	type: "response";
@@ -226,6 +229,23 @@ export class BufferRpcProcess {
 	async getMessages(): Promise<unknown> {
 		const res = await this.request({ type: "get_messages" });
 		if (!res.success) throw new Error(`buffer get_messages failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	async newSession(parentSession?: string): Promise<unknown> {
+		const res = await this.request({ type: "new_session", parentSession });
+		if (!res.success) throw new Error(`buffer new_session failed: ${res.error ?? JSON.stringify(res.data)}`);
+		return res.data;
+	}
+
+	async setSessionName(name: string): Promise<void> {
+		const res = await this.request({ type: "set_session_name", name });
+		if (!res.success) throw new Error(`buffer set_session_name failed: ${res.error ?? JSON.stringify(res.data)}`);
+	}
+
+	async getCommands(): Promise<unknown> {
+		const res = await this.request({ type: "get_commands" });
+		if (!res.success) throw new Error(`buffer get_commands failed: ${res.error ?? JSON.stringify(res.data)}`);
 		return res.data;
 	}
 

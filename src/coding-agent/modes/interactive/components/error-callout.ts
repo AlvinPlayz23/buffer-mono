@@ -1,4 +1,4 @@
-import type { Component } from "#buffer-tui";
+import { truncateToWidth, type Component } from "#buffer-tui";
 
 /**
  * A compact corner callout for error/abort messages.
@@ -21,10 +21,10 @@ export class ErrorCallout implements Component {
 		// No cached state
 	}
 
-	render(_width: number): string[] {
+	render(width: number): string[] {
 		return [
-			this.colorFn("╭─ " + this.label),
-			this.colorFn("╰─ " + this.message),
+			truncateToWidth(this.colorFn("╭─ " + this.label), width, ""),
+			truncateToWidth(this.colorFn(`╰─ ${this.message}`), width, "…"),
 		];
 	}
 }
